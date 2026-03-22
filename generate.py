@@ -71,5 +71,5 @@ def plot_sample(sample, title, filename):
     plt.savefig(f"generated/{filename}", dpi=300)
     plt.close()
 
-plot_sample(stable_sample, "Generated Stable Spectral Map")
-plot_sample(crisis_sample, "Generated Crisis Spectral Map")
+plot_sample(stable_sample, "Generated Stable Spectral Map", "stable.png")
+plot_sample(crisis_sample, "Generated Crisis Spectral Map", "crisis.png")
