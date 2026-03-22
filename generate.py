@@ -124,5 +124,5 @@ crisis_sample = sample_conditioned(crisis_spec, 2)
 # =========================
 # Save
 # =========================
-plot_sample(stable_sample, "Generated Stable Spectral Map", "stable4.png")
-plot_sample(crisis_sample, "Generated Crisis Spectral Map", "crisis4.png")
+plot_sample(stable_sample, "Generated Stable Spectral Map", "generated/stable4.png")
+plot_sample(crisis_sample, "Generated Crisis Spectral Map", "generated/crisis4.png")
