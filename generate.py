@@ -3,7 +3,7 @@ import numpy as np
 
 from models.unet import SimpleUNet
 from models.diffusion import DiffusionModel
-from models.scheduler import NoiseScheduler  # <-- make sure this exists
+from models.scheduler import CosineScheduler 
 from data.load_data import load_nifty
 from data.features import compute_log_returns
 from data.windowing import create_windows
@@ -19,7 +19,7 @@ model = SimpleUNet(emb_dim=256).to(DEVICE)
 model.load_state_dict(torch.load("checkpoints/ema_epoch_20.pt", map_location=DEVICE))
 model.eval()
 
-scheduler = NoiseScheduler()
+scheduler = CosineScheduler()
 diffusion = DiffusionModel(model, scheduler, DEVICE)
 
 T = scheduler.alpha_hat.shape[0]
