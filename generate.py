@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-
+import os
 from models.unet import SimpleUNet
 from models.scheduler import CosineScheduler
 from models.embeddings import SinusoidalPositionEmbeddings, RegimeEmbedding
@@ -57,7 +57,7 @@ crisis_sample = sample(regime_label=2)
 
 
 # VISUALIZE
-def plot_sample(sample, title):
+def plot_sample(sample, title, filename):
     sample = sample.squeeze().cpu().numpy()
 
     plt.figure(figsize=(10, 6))
@@ -66,8 +66,10 @@ def plot_sample(sample, title):
     plt.title(title)
     plt.xlabel("Time")
     plt.ylabel("Frequency")
-    plt.show()
 
+    os.makedirs("generated", exist_ok=True)
+    plt.savefig(f"generated/{filename}", dpi=300)
+    plt.close()
 
 plot_sample(stable_sample, "Generated Stable Spectral Map")
 plot_sample(crisis_sample, "Generated Crisis Spectral Map")
