@@ -9,7 +9,7 @@ class ResBlock(nn.Module):
         self.conv1 = nn.Conv2d(in_channels, out_channels, 3, padding=1)
         self.conv2 = nn.Conv2d(out_channels, out_channels, 3, padding=1)
 
-        self.emb_proj = nn.Linear(emb_dim, out_channels)
+        self.emb_proj = nn.Linear(emb_dim, out_channels * 2)
 
         self.norm1 = nn.GroupNorm(8, out_channels)
         self.norm2 = nn.GroupNorm(8, out_channels)
@@ -27,7 +27,8 @@ class ResBlock(nn.Module):
         h = self.activation(h)
 
         emb_out = self.emb_proj(emb)
-        h = h + emb_out[:, :, None, None]
+        scale, shift = torch.chunk(emb_out, 2, dim=1)
+        h = h * (1 + scale[:, :, None, None]) + shift[:, :, None, None]
 
         h = self.conv2(h)
         h = self.norm2(h)
