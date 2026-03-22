@@ -7,7 +7,10 @@ from models.scheduler import CosineScheduler
 from models.embeddings import SinusoidalPositionEmbeddings, RegimeEmbedding
 from data.wavelet import compute_cwt
 from config import NUM_SCALES
-
+from data.load_data import load_nifty
+from data.features import compute_log_returns
+from data.windowing import create_windows
+from data.wavelet import compute_cwt
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -24,8 +27,11 @@ regime_embed = RegimeEmbedding(num_regimes=3, emb_dim=128).to(DEVICE)
 
 # SAMPLING FUNCTION
 @torch.no_grad()
-def sample(regime_label, steps=1000):
-    x = torch.randn(1, 1, 64, 160).to(DEVICE)
+def sample_conditioned(past_spectral, regime_label, steps=1000):
+    x = torch.randn_like(past_spectral).to(DEVICE)
+
+    # Keep past fixed (first 128 time steps)
+    x[:, :, :, :-32] = past_spectral[:, :, :, :-32]
 
     for t in reversed(range(steps)):
         t_tensor = torch.tensor([t], device=DEVICE)
@@ -48,13 +54,35 @@ def sample(regime_label, steps=1000):
             x - ((1 - alpha) / torch.sqrt(1 - alpha_hat)) * noise_pred
         ) + torch.sqrt(1 - alpha) * noise
 
+    
+        x[:, :, :, :-32] = past_spectral[:, :, :, :-32]
+
     return x
 
 
 # GENERATE SAMPLES
-stable_sample = sample(regime_label=0)
-crisis_sample = sample(regime_label=2)
+# ======================================
+# LOAD REAL DATA FOR CONDITIONING
+# ======================================
+df = load_nifty("data_files/Nifty50(2008-2025).csv")
+returns = compute_log_returns(df['Close'].values)
+windows = create_windows(returns)
 
+# Take one real window
+window = windows[0]
+
+# Normalize
+window = (window - window.mean()) / (window.std() + 1e-6)
+
+# Convert to spectral
+spectral = compute_cwt(window)
+spectral = torch.tensor(spectral).unsqueeze(0).unsqueeze(0).float().to(DEVICE)
+
+# ======================================
+# GENERATE FUTURE
+# ======================================
+stable_sample = sample_conditioned(spectral, regime_label=0)
+crisis_sample = sample_conditioned(spectral, regime_label=2)
 
 # VISUALIZE
 def plot_sample(sample, title, filename):
