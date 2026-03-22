@@ -11,7 +11,7 @@ from data.wavelet import compute_cwt
 from data.regime import compute_volatility, compute_drawdown, assign_regimes
 import matplotlib.pyplot as plt
 import os
-from config import DEVICE
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 def plot_sample(sample, title, filename):
     os.makedirs("generated", exist_ok=True)
