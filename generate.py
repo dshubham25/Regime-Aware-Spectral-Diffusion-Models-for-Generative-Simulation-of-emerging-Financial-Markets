@@ -1,18 +1,24 @@
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
+import os
 
 from models.unet import SimpleUNet
-from models.diffusion import DiffusionModel
-from models.scheduler import CosineScheduler 
+from models.scheduler import CosineScheduler
 from data.load_data import load_nifty
 from data.features import compute_log_returns
 from data.windowing import create_windows
 from data.wavelet import compute_cwt
 from data.regime import compute_volatility, compute_drawdown, assign_regimes
-import matplotlib.pyplot as plt
-import os
+
+# =========================
+# Device
+# =========================
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
+# =========================
+# Plot Function
+# =========================
 def plot_sample(sample, title, filename):
     os.makedirs("generated", exist_ok=True)
 
@@ -25,17 +31,22 @@ def plot_sample(sample, title, filename):
 
     plt.savefig(filename, dpi=300)
     plt.close()
+
 # =========================
-# Setup Model + Scheduler
+# Load Model
 # =========================
 model = SimpleUNet(emb_dim=256).to(DEVICE)
 model.load_state_dict(torch.load("checkpoints/ema_epoch_20.pt", map_location=DEVICE))
 model.eval()
 
+# =========================
+# Scheduler
+# =========================
 scheduler = CosineScheduler()
-diffusion = DiffusionModel(model, scheduler, DEVICE)
-
-T = scheduler.alpha_hat.shape[0]
+alphas = scheduler.alphas.to(DEVICE)
+alpha_hat = scheduler.alpha_hat.to(DEVICE)
+betas = scheduler.betas.to(DEVICE)
+T = scheduler.timesteps
 
 # =========================
 # Embeddings
@@ -58,7 +69,7 @@ regimes = assign_regimes(volatility, drawdown)
 window_regimes = regimes[-len(windows):]
 
 # =========================
-# Pick Different Regimes
+# Select Regimes
 # =========================
 stable_idx = np.where(window_regimes == 0)[0][0]
 crisis_idx = np.where(window_regimes == 2)[0][0]
@@ -76,17 +87,11 @@ stable_spec = torch.tensor(stable_spec).unsqueeze(0).unsqueeze(0).float().to(DEV
 crisis_spec = torch.tensor(crisis_spec).unsqueeze(0).unsqueeze(0).float().to(DEVICE)
 
 # =========================
-# SAMPLING FUNCTION (MANUAL DDPM)
+# SAMPLING FUNCTION
 # =========================
 @torch.no_grad()
 def sample_conditioned(x_init, regime_label):
-    x = x_init.clone()
-
-    alphas = scheduler.alphas.to(DEVICE)
-    alpha_hat = scheduler.alpha_hat.to(DEVICE)
-    betas = scheduler.betas.to(DEVICE)
-
-    T = scheduler.timesteps
+    x = torch.randn_like(x_init)
 
     for t in reversed(range(T)):
         t_tensor = torch.tensor([t], device=DEVICE)
@@ -94,7 +99,7 @@ def sample_conditioned(x_init, regime_label):
         t_emb = timestep_embed(t_tensor)
         r_emb = regime_embed(torch.tensor([regime_label], device=DEVICE))
 
-        #  concat embedding (256-dim)
+        # concat embedding (256-dim)
         emb = torch.cat([t_emb, r_emb], dim=1)
 
         noise_pred = model(x, emb)
@@ -108,10 +113,15 @@ def sample_conditioned(x_init, regime_label):
         else:
             noise = torch.zeros_like(x)
 
-        # correct DDPM reverse step
+        # DDPM reverse step
         x = (1 / torch.sqrt(a)) * (
             x - ((1 - a) / torch.sqrt(1 - ah)) * noise_pred
         ) + torch.sqrt(b) * noise
+
+        mask = torch.zeros_like(x)
+        mask[:, :, :, :-32] = 1  # keep past
+
+        x = x * (1 - mask) + x_init * mask
 
     return x.squeeze().cpu().numpy()
 
@@ -124,5 +134,6 @@ crisis_sample = sample_conditioned(crisis_spec, 2)
 # =========================
 # Save
 # =========================
-plot_sample(stable_sample, "Generated Stable Spectral Map", "generated/stable4.png")
-plot_sample(crisis_sample, "Generated Crisis Spectral Map", "generated/crisis4.png")
+plot_sample(stable_sample, "Generated Stable Spectral Map", "generated/stable5.png")
+plot_sample(crisis_sample, "Generated Crisis Spectral Map", "generated/crisis5.png")
+
