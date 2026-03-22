@@ -37,7 +37,7 @@ class ResBlock(nn.Module):
 
 
 class SimpleUNet(nn.Module):
-    def __init__(self, emb_dim=128):
+    def __init__(self, emb_dim=256):
         super().__init__()
 
         self.down1 = ResBlock(1, 64, emb_dim)

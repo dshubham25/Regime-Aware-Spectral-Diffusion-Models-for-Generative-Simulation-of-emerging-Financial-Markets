@@ -51,7 +51,7 @@ dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 # MODEL SETUP
 scheduler = CosineScheduler()
 
-model = SimpleUNet(emb_dim=128).to(DEVICE)
+model = SimpleUNet(emb_dim=256).to(DEVICE)
 ema = EMA(model)
 
 timestep_embed = SinusoidalPositionEmbeddings(128).to(DEVICE)
@@ -85,7 +85,7 @@ for epoch in range(EPOCHS):
         # Embeddings
         t_emb = timestep_embed(t)
         r_emb = regime_embed(regime)
-        emb = t_emb + r_emb
+        emb = torch.cat([t_emb, r_emb], dim=1)
 
         # Diffusion loss
         loss = diffusion.loss(spectral, emb, t)
