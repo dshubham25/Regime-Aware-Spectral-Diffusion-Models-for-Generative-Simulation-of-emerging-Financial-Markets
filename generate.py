@@ -38,7 +38,7 @@ def sample_conditioned(past_spectral, regime_label, steps=1000):
 
         t_emb = timestep_embed(t_tensor)
         r_emb = regime_embed(torch.tensor([regime_label], device=DEVICE))
-        emb = t_emb + r_emb
+        emb = torch.cat([t_emb, r_emb], dim=1)
 
         noise_pred = model(x, emb)
 
