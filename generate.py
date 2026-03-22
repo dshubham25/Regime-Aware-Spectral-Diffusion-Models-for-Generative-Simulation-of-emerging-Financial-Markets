@@ -22,7 +22,7 @@ model.eval()
 scheduler = CosineScheduler()
 
 timestep_embed = SinusoidalPositionEmbeddings(128).to(DEVICE)
-regime_embed = RegimeEmbedding(num_regimes=3, emb_dim=128).to(DEVICE)
+regime_embed = RegimeEmbedding(num_regimes=3, emb_dim=256).to(DEVICE)
 
 
 # SAMPLING FUNCTION
