@@ -22,6 +22,6 @@ class SpectralDataset(Dataset):
         spectral = torch.tensor(spectral, dtype=torch.float32)
         spectral = spectral.unsqueeze(0)  # (1, 64, 160)
 
-        regime = torch.tensor(self.window_regimes[idx], dtype=torch.long)
+        regime = self.window_regimes[idx].clone().detach().long()
 
         return spectral, regime

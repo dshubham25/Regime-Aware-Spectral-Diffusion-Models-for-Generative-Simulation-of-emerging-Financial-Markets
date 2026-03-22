@@ -10,10 +10,11 @@ class DiffusionModel:
 
     def add_noise(self, x, t):
         noise = torch.randn_like(x)
-        alpha_hat = self.scheduler.alpha_hat[t].to(self.device)
-        alpha_hat = alpha_hat[:, None, None, None]
 
-        noisy = torch.sqrt(alpha_hat) * x + torch.sqrt(1 - alpha_hat) * noise
+        alpha_hat = self.scheduler.alpha_hat.to(self.device)
+        alpha_hat_t = alpha_hat[t].view(-1, 1, 1, 1)
+
+        noisy = torch.sqrt(alpha_hat_t) * x + torch.sqrt(1 - alpha_hat_t) * noise
         return noisy, noise
 
     def loss(self, x, regime, t):

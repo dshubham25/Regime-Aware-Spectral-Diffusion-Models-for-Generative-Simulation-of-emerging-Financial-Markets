@@ -18,7 +18,7 @@ from config import WINDOW_TOTAL, STEP_SIZE
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-EPOCHS = 50
+EPOCHS = 1
 BATCH_SIZE = 16
 LR = 2e-4
 
