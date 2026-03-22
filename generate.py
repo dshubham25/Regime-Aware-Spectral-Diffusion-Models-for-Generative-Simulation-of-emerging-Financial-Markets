@@ -15,14 +15,14 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 # LOAD MODEL (EMA)
-model = SimpleUNet(emb_dim=128).to(DEVICE)
+model = SimpleUNet(emb_dim=256).to(DEVICE)
 model.load_state_dict(torch.load("checkpoints/ema_epoch_20.pt", map_location=DEVICE))
 model.eval()
 
 scheduler = CosineScheduler()
 
 timestep_embed = SinusoidalPositionEmbeddings(128).to(DEVICE)
-regime_embed = RegimeEmbedding(num_regimes=3, emb_dim=256).to(DEVICE)
+regime_embed = RegimeEmbedding(num_regimes=3, emb_dim=128).to(DEVICE)
 
 
 # SAMPLING FUNCTION
