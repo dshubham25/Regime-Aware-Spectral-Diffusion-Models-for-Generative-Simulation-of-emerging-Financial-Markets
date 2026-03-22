@@ -9,9 +9,22 @@ from data.features import compute_log_returns
 from data.windowing import create_windows
 from data.wavelet import compute_cwt
 from data.regime import compute_volatility, compute_drawdown, assign_regimes
-from visualization.plots import plot_sample
+import matplotlib.pyplot as plt
+import os
 from config import DEVICE
 
+def plot_sample(sample, title, filename):
+    os.makedirs("generated", exist_ok=True)
+
+    plt.figure(figsize=(10, 6))
+    plt.imshow(np.abs(sample), aspect='auto', cmap='viridis')
+    plt.colorbar()
+    plt.title(title)
+    plt.xlabel("Time")
+    plt.ylabel("Frequency")
+
+    plt.savefig(filename, dpi=300)
+    plt.close()
 # =========================
 # Setup Model + Scheduler
 # =========================
