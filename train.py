@@ -24,8 +24,23 @@ LR = 1e-4
 
 os.makedirs("checkpoints", exist_ok=True)
 
+
 # =========================
-# LOAD DATA
+# SINUSOIDAL TIMESTEP EMBEDDING
+# =========================
+def get_timestep_embedding(t, dim=128):
+    half = dim // 2
+    freqs = torch.exp(
+        -torch.log(torch.tensor(10000.0)) * torch.arange(0, half) / half
+    ).to(t.device)
+
+    args = t[:, None] * freqs[None]
+    emb = torch.cat([torch.sin(args), torch.cos(args)], dim=1)
+    return emb
+
+
+# =========================
+# DATA
 # =========================
 df = load_nifty("data_files/Nifty50(2008-2025).csv")
 
@@ -53,7 +68,7 @@ spectral_data = np.array(spectral_data)
 
 
 # =========================
-# MODEL + DIFFUSION
+# MODEL
 # =========================
 model = SimpleUNet(emb_dim=256).to(DEVICE)
 scheduler = CosineScheduler()
@@ -61,15 +76,11 @@ diffusion = DiffusionModel(model, scheduler, DEVICE)
 
 T = scheduler.timesteps
 
-# 🔥 TRAINABLE EMBEDDINGS
-timestep_embed = torch.nn.Embedding(T, 128).to(DEVICE)
+# ✅ ONLY regime embedding is trainable
 regime_embed = torch.nn.Embedding(3, 128).to(DEVICE)
 
-# 🔥 FIX: include embeddings in optimizer
 optimizer = torch.optim.Adam(
-    list(model.parameters()) +
-    list(timestep_embed.parameters()) +
-    list(regime_embed.parameters()),
+    list(model.parameters()) + list(regime_embed.parameters()),
     lr=LR
 )
 
@@ -81,7 +92,6 @@ model.train()
 
 for epoch in range(EPOCHS):
     total_loss = 0
-
     indices = np.random.permutation(len(spectral_data))
 
     for i in tqdm(range(0, len(indices), BATCH_SIZE)):
@@ -95,11 +105,11 @@ for epoch in range(EPOCHS):
 
         t = torch.randint(0, T, (x.size(0),), device=DEVICE)
 
-        # 🔥 CORRECT EMBEDDING
-        t_emb = timestep_embed(t)
+        # ✅ FIX: sinusoidal timestep + learned regime
+        t_emb = get_timestep_embedding(t, 128)
         r_emb = regime_embed(regime_batch)
 
-        emb = torch.cat([t_emb, r_emb], dim=1)  # 256
+        emb = torch.cat([t_emb, r_emb], dim=1)
 
         loss = diffusion.loss(x, emb, t)
 
@@ -109,12 +119,9 @@ for epoch in range(EPOCHS):
 
         total_loss += loss.item()
 
-    avg_loss = total_loss / (len(indices) // BATCH_SIZE)
-    print(f"Epoch {epoch+1}/{EPOCHS} | Avg Loss: {avg_loss:.6f}")
+    print(f"Epoch {epoch+1}/{EPOCHS} | Loss: {total_loss:.4f}")
 
-    # 🔥 SAVE EVERYTHING (MODEL + EMBEDDINGS)
     torch.save({
         "model": model.state_dict(),
-        "t_embed": timestep_embed.state_dict(),
         "r_embed": regime_embed.state_dict()
     }, f"checkpoints/ema_epoch_{epoch+1}.pt")

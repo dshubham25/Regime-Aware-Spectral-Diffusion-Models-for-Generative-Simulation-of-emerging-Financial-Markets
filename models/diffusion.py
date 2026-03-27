@@ -19,11 +19,5 @@ class DiffusionModel:
 
     def loss(self, x, emb, t):
         noisy, noise = self.add_noise(x, t)
-
         noise_pred = self.model(noisy, emb)
-
-        mask = torch.zeros_like(x)
-        mask[:, :, :, -32:] = 1.0
-
-        loss = F.mse_loss(noise_pred * mask, noise * mask)
-        return loss
+        return F.mse_loss(noise_pred, noise)

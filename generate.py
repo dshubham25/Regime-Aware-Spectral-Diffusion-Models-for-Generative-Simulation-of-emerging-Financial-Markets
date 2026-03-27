@@ -5,6 +5,7 @@ import os
 
 from models.unet import SimpleUNet
 from models.scheduler import CosineScheduler
+
 from data.load_data import load_nifty
 from data.features import compute_log_returns
 from data.windowing import create_windows
@@ -15,14 +16,22 @@ from data.regime import compute_volatility, compute_drawdown, assign_regimes
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
+def get_timestep_embedding(t, dim=128):
+    half = dim // 2
+    freqs = torch.exp(
+        -torch.log(torch.tensor(10000.0)) * torch.arange(0, half) / half
+    ).to(t.device)
+
+    args = t[:, None] * freqs[None]
+    return torch.cat([torch.sin(args), torch.cos(args)], dim=1)
+
+
 def plot_sample(sample, title, filename):
     os.makedirs("generated", exist_ok=True)
 
-    plt.figure(figsize=(10, 6))
     plt.imshow(np.abs(sample), aspect='auto', cmap='viridis')
     plt.colorbar()
     plt.title(title)
-
     plt.savefig(f"generated/{filename}", dpi=300)
     plt.close()
 
@@ -34,14 +43,10 @@ model = SimpleUNet(emb_dim=256).to(DEVICE)
 scheduler = CosineScheduler()
 T = scheduler.timesteps
 
-timestep_embed = torch.nn.Embedding(T, 128).to(DEVICE)
 regime_embed = torch.nn.Embedding(3, 128).to(DEVICE)
 
-# 🔥 LOAD FULL CHECKPOINT
 ckpt = torch.load("checkpoints/ema_epoch_20.pt", map_location=DEVICE)
-
 model.load_state_dict(ckpt["model"])
-timestep_embed.load_state_dict(ckpt["t_embed"])
 regime_embed.load_state_dict(ckpt["r_embed"])
 
 model.eval()
@@ -66,13 +71,8 @@ def normalize(x):
     return (x - x.mean()) / (x.std() + 1e-6)
 
 
-stable_idx = np.where(window_regimes == 0)[0][0]
-crisis_idx = np.where(window_regimes == 2)[0][0]
-
-stable_spec = compute_cwt(normalize(windows[stable_idx]))
-crisis_spec = compute_cwt(normalize(windows[crisis_idx]))
-
-stable_spec = torch.tensor(stable_spec).unsqueeze(0).unsqueeze(0).float().to(DEVICE)
+idx = np.where(window_regimes == 0)[0][0]
+shape = torch.tensor(compute_cwt(normalize(windows[idx]))).unsqueeze(0).unsqueeze(0).shape
 
 
 # =========================
@@ -90,7 +90,7 @@ def sample(shape, regime_label):
         t_tensor = torch.tensor([t], device=DEVICE)
 
         emb = torch.cat([
-            timestep_embed(t_tensor),
+            get_timestep_embedding(t_tensor, 128),
             regime_embed(torch.tensor([regime_label], device=DEVICE))
         ], dim=1)
 
@@ -109,15 +109,9 @@ def sample(shape, regime_label):
     return x.squeeze().cpu().numpy()
 
 
-# =========================
-# GENERATE
-# =========================
-shape = stable_spec.shape
-
 stable = sample(shape, 0)
 crisis = sample(shape, 2)
 
-plot_sample(stable, "Generated Stable Spectral Map", "stable.png")
-plot_sample(crisis, "Generated Crisis Spectral Map", "crisis.png")
+plot_sample(stable, "Stable", "stable.png")
+plot_sample(crisis, "Crisis", "crisis.png")
 
-print("✅ Done. Check 'generated/' folder.")
