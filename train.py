@@ -26,7 +26,7 @@ os.makedirs("checkpoints", exist_ok=True)
 
 
 # =========================
-# SINUSOIDAL EMBEDDING
+# TIMESTEP EMBEDDING
 # =========================
 def get_timestep_embedding(t, dim=256):
     half = dim // 2
@@ -40,11 +40,14 @@ def get_timestep_embedding(t, dim=256):
 
 
 # =========================
-# NORMALIZATION
+# ✅ FINAL NORMALIZATION (CRITICAL FIX)
 # =========================
 def normalize(x):
     x = np.abs(x)
     x = np.log1p(x)
+
+    x = (x - x.mean()) / (x.std() + 1e-6)
+
     return x
 
 
@@ -60,28 +63,22 @@ volatility = compute_volatility(returns)
 drawdown = compute_drawdown(df["Close"].values[1:])
 regimes = assign_regimes(volatility, drawdown)
 
-window_regimes = regimes[-len(windows):]
+window_regimes = regimes[-len(windows)]
 
 
 # =========================
-# FILTER: ONLY STABLE REGIME
+# ONLY STABLE REGIME
 # =========================
 mask = (window_regimes == 0)
 
 windows = windows[mask]
-window_regimes = window_regimes[mask]
-
-
-# =========================
-# SMALL DATASET
-# =========================
 windows = windows[:200]
 
 print("Training samples:", len(windows))
 
 
 # =========================
-# CREATE SPECTRAL DATA
+# SPECTRAL DATA
 # =========================
 spectral_data = []
 
@@ -106,7 +103,7 @@ T = scheduler.timesteps
 
 
 # =========================
-# TRAIN LOOP
+# TRAIN
 # =========================
 model.train()
 
@@ -122,7 +119,6 @@ for epoch in range(EPOCHS):
         x = torch.tensor(batch).unsqueeze(1).float().to(DEVICE)
 
         t = torch.randint(0, T, (x.size(0),), device=DEVICE)
-
 
         emb = get_timestep_embedding(t, 256)
 

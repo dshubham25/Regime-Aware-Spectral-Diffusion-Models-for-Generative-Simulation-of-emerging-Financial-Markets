@@ -15,6 +15,9 @@ from data.wavelet import compute_cwt
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
+# =========================
+# EMBEDDING
+# =========================
 def get_timestep_embedding(t, dim=256):
     half = dim // 2
     freqs = torch.exp(
@@ -26,18 +29,28 @@ def get_timestep_embedding(t, dim=256):
     return torch.cat([torch.sin(args), torch.cos(args)], dim=1)
 
 
+# =========================
+# SAME NORMALIZATION
+# =========================
 def normalize(x):
     x = np.abs(x)
     x = np.log1p(x)
+    x = (x - x.mean()) / (x.std() + 1e-6)
     return x
 
 
+# =========================
+# FIXED PLOT
+# =========================
 def plot_sample(sample, title, filename):
     os.makedirs("generated", exist_ok=True)
 
-    plt.imshow(sample, aspect='auto', cmap='viridis')
+    plt.figure(figsize=(8, 6))
+
+    plt.imshow(sample, aspect='auto', cmap='viridis', vmin=-2, vmax=2)
     plt.colorbar()
     plt.title(title)
+
     plt.savefig(f"generated/{filename}", dpi=300)
     plt.close()
 
@@ -102,6 +115,6 @@ def sample(shape):
 # =========================
 sample_out = sample(shape)
 
-plot_sample(sample_out, "Generated (Stable Only)", "stable_debug.png")
+plot_sample(sample_out, "Generated (Fixed)", "stable_fixed1.png")
 
 print("Done.")
