@@ -108,6 +108,6 @@ def sample(shape, regime_label):
 stable = sample(shape, 0)
 crisis = sample(shape, 2)
 
-plot_sample(stable, "Stable", "stableUpdated.png")
-plot_sample(crisis, "Crisis", "crisisUpdated.png")
+plot_sample(stable, "Stable", "stableUpdated1.png")
+plot_sample(crisis, "Crisis", "crisisUpdated1.png")
 
