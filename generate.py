@@ -116,7 +116,7 @@ def sample(shape, regime_label=0):
 stable = sample(shape, 0)
 crisis = sample(shape, 2)
 
-plot_sample(stable, "Stable Regime", "stable_done.png")
-plot_sample(crisis, "Crisis Regime", "crisis_done.png")
+plot_sample(stable, "Stable Regime", "stable_don.png")
+plot_sample(crisis, "Crisis Regime", "crisis_don.png")
 
 print("DONE")
