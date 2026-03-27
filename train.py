@@ -18,29 +18,39 @@ from data.regime import compute_volatility, compute_drawdown, assign_regimes
 # CONFIG
 # =========================
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-EPOCHS = 20
+EPOCHS = 5   # start small
 BATCH_SIZE = 16
-LR = 1e-4
+LR = 3e-4    # ✅ increased
 
 os.makedirs("checkpoints", exist_ok=True)
 
 
 # =========================
-# SINUSOIDAL TIMESTEP EMBEDDING
+# SINUSOIDAL EMBEDDING
 # =========================
 def get_timestep_embedding(t, dim=128):
     half = dim // 2
+
     freqs = torch.exp(
-        -torch.log(torch.tensor(10000.0)) * torch.arange(0, half) / half
+        -torch.log(torch.tensor(10000.0)) *
+        torch.arange(0, half) / half
     ).to(t.device)
 
     args = t[:, None] * freqs[None]
-    emb = torch.cat([torch.sin(args), torch.cos(args)], dim=1)
-    return emb
+    return torch.cat([torch.sin(args), torch.cos(args)], dim=1)
 
 
 # =========================
-# DATA
+# NORMALIZATION (CRITICAL FIX)
+# =========================
+def normalize(x):
+    x = np.abs(x)
+    x = np.log1p(x)   # ✅ fixes collapse
+    return x
+
+
+# =========================
+# LOAD DATA
 # =========================
 df = load_nifty("data_files/Nifty50(2008-2025).csv")
 
@@ -54,10 +64,6 @@ regimes = assign_regimes(volatility, drawdown)
 window_regimes = regimes[-len(windows):]
 
 
-def normalize(x):
-    return (x - x.mean()) / (x.std() + 1e-6)
-
-
 spectral_data = []
 for w in windows:
     w = normalize(w)
@@ -66,17 +72,18 @@ for w in windows:
 
 spectral_data = np.array(spectral_data)
 
+print("Dataset size:", len(spectral_data))
+
 
 # =========================
 # MODEL
 # =========================
 model = SimpleUNet(emb_dim=256).to(DEVICE)
-scheduler = CosineScheduler()
+scheduler = CosineScheduler()   # 200 steps
 diffusion = DiffusionModel(model, scheduler, DEVICE)
 
 T = scheduler.timesteps
 
-# ✅ ONLY regime embedding is trainable
 regime_embed = torch.nn.Embedding(3, 128).to(DEVICE)
 
 optimizer = torch.optim.Adam(
@@ -86,7 +93,7 @@ optimizer = torch.optim.Adam(
 
 
 # =========================
-# TRAIN LOOP
+# TRAIN
 # =========================
 model.train()
 
@@ -105,13 +112,19 @@ for epoch in range(EPOCHS):
 
         t = torch.randint(0, T, (x.size(0),), device=DEVICE)
 
-        # ✅ FIX: sinusoidal timestep + learned regime
         t_emb = get_timestep_embedding(t, 128)
         r_emb = regime_embed(regime_batch)
-
         emb = torch.cat([t_emb, r_emb], dim=1)
 
-        loss = diffusion.loss(x, emb, t)
+        # DEBUG
+        noisy, noise = diffusion.add_noise(x, t)
+        noise_pred = model(noisy, emb)
+
+        if i == 0:
+            print("noise mean:", noise.mean().item())
+            print("pred mean:", noise_pred.mean().item())
+
+        loss = torch.nn.functional.mse_loss(noise_pred, noise)
 
         optimizer.zero_grad()
         loss.backward()

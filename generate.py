@@ -26,10 +26,16 @@ def get_timestep_embedding(t, dim=128):
     return torch.cat([torch.sin(args), torch.cos(args)], dim=1)
 
 
+def normalize(x):
+    x = np.abs(x)
+    x = np.log1p(x)
+    return x
+
+
 def plot_sample(sample, title, filename):
     os.makedirs("generated", exist_ok=True)
 
-    plt.imshow(np.abs(sample), aspect='auto', cmap='viridis')
+    plt.imshow(sample, aspect='auto', cmap='viridis')
     plt.colorbar()
     plt.title(title)
     plt.savefig(f"generated/{filename}", dpi=300)
@@ -45,7 +51,8 @@ T = scheduler.timesteps
 
 regime_embed = torch.nn.Embedding(3, 128).to(DEVICE)
 
-ckpt = torch.load("checkpoints/ema_epoch_20.pt", map_location=DEVICE)
+ckpt = torch.load("checkpoints/ema_epoch_5.pt", map_location=DEVICE)
+
 model.load_state_dict(ckpt["model"])
 regime_embed.load_state_dict(ckpt["r_embed"])
 
@@ -53,26 +60,15 @@ model.eval()
 
 
 # =========================
-# DATA
+# SHAPE FROM DATA
 # =========================
 df = load_nifty("data_files/Nifty50(2008-2025).csv")
 
 returns = compute_log_returns(df["Close"].values)
 windows = create_windows(returns)
 
-volatility = compute_volatility(returns)
-drawdown = compute_drawdown(df["Close"].values[1:])
-regimes = assign_regimes(volatility, drawdown)
-
-window_regimes = regimes[-len(windows):]
-
-
-def normalize(x):
-    return (x - x.mean()) / (x.std() + 1e-6)
-
-
-idx = np.where(window_regimes == 0)[0][0]
-shape = torch.tensor(compute_cwt(normalize(windows[idx]))).unsqueeze(0).unsqueeze(0).shape
+sample = compute_cwt(normalize(windows[0]))
+shape = torch.tensor(sample).unsqueeze(0).unsqueeze(0).shape
 
 
 # =========================
@@ -112,6 +108,6 @@ def sample(shape, regime_label):
 stable = sample(shape, 0)
 crisis = sample(shape, 2)
 
-plot_sample(stable, "Stable", "stable.png")
-plot_sample(crisis, "Crisis", "crisis.png")
+plot_sample(stable, "Stable", "stableUpdated.png")
+plot_sample(crisis, "Crisis", "crisisUpdated.png")
 
