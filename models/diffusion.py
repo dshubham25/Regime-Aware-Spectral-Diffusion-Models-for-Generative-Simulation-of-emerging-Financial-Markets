@@ -17,14 +17,11 @@ class DiffusionModel:
         noisy = torch.sqrt(alpha_hat_t) * x + torch.sqrt(1 - alpha_hat_t) * noise
         return noisy, noise
 
-    # 🔥 FIX: take EMBEDDING, not regime
     def loss(self, x, emb, t):
         noisy, noise = self.add_noise(x, t)
 
-        # predict noise using embedding
         noise_pred = self.model(noisy, emb)
 
-        # mask (optional but fine)
         mask = torch.zeros_like(x)
         mask[:, :, :, -32:] = 1.0
 
