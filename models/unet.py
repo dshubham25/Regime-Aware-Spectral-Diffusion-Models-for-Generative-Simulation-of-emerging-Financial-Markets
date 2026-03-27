@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 # =========================
-# BASIC BLOCK
+# BLOCK
 # =========================
 class Block(nn.Module):
     def __init__(self, in_ch, out_ch, emb_dim):
@@ -23,7 +23,6 @@ class Block(nn.Module):
         h = self.norm1(h)
         h = F.silu(h)
 
-        # inject embedding
         emb_out = self.emb_layer(emb).unsqueeze(-1).unsqueeze(-1)
         h = h + emb_out
 
@@ -35,13 +34,11 @@ class Block(nn.Module):
 
 
 # =========================
-# U-NET
+# UNET (FIXED CHANNELS)
 # =========================
 class SimpleUNet(nn.Module):
     def __init__(self, emb_dim=256):
         super().__init__()
-
-        self.emb_dim = emb_dim
 
         # DOWN
         self.down1 = Block(1, 64, emb_dim)
@@ -53,21 +50,21 @@ class SimpleUNet(nn.Module):
         self.down3 = Block(128, 256, emb_dim)
         self.pool3 = nn.MaxPool2d(2)
 
-        # BOTTLENECK
+        # MID
         self.mid = Block(256, 256, emb_dim)
 
-        # UP
-        self.up1 = nn.ConvTranspose2d(256, 128, 2, stride=2)
-        self.block1 = Block(256, 128, emb_dim)
+        # UP (FIXED)
+        self.up1 = nn.ConvTranspose2d(256, 256, 2, stride=2)
+        self.block1 = Block(256 + 256, 256, emb_dim)  # 512 → 256
 
-        self.up2 = nn.ConvTranspose2d(128, 64, 2, stride=2)
-        self.block2 = Block(128, 64, emb_dim)
+        self.up2 = nn.ConvTranspose2d(256, 128, 2, stride=2)
+        self.block2 = Block(128 + 128, 128, emb_dim)  # 256 → 128
 
-        self.up3 = nn.ConvTranspose2d(64, 32, 2, stride=2)
-        self.block3 = Block(64, 32, emb_dim)
+        self.up3 = nn.ConvTranspose2d(128, 64, 2, stride=2)
+        self.block3 = Block(64 + 64, 64, emb_dim)     # 128 → 64
 
-        # OUTPUT
-        self.out = nn.Conv2d(32, 1, 1)
+        # OUT
+        self.out = nn.Conv2d(64, 1, 1)
 
     def forward(self, x, emb):
         # DOWN
