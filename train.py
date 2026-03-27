@@ -18,9 +18,9 @@ from data.regime import compute_volatility, compute_drawdown, assign_regimes
 # CONFIG
 # =========================
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-EPOCHS = 30
+EPOCHS = 40
 BATCH_SIZE = 16
-LR = 2e-4
+LR = 1e-4
 
 os.makedirs("checkpoints", exist_ok=True)
 
@@ -39,15 +39,16 @@ def get_timestep_embedding(t, dim=128):
     return torch.cat([torch.sin(args), torch.cos(args)], dim=1)
 
 
-# ✅ REGIME EMBEDDING
 regime_embed = torch.nn.Embedding(3, 128).to(DEVICE)
 
 
 # =========================
-# NORMALIZATION
+# NORMALIZATION (FIXED)
 # =========================
 def normalize(x):
-    return x / (np.max(np.abs(x)) + 1e-6)
+    x = x - np.mean(x)
+    x = x / (np.std(x) + 1e-6)
+    return x
 
 
 # =========================
@@ -81,25 +82,25 @@ for w in windows:
 
     spec = compute_cwt(w)
 
-    # ✅ FIX SHAPE (remove extra dimension)
     if spec.ndim == 3:
         spec = spec.mean(axis=0)
 
-    # ✅ FIX SCALE
-    spec = spec / (np.max(np.abs(spec)) + 1e-6)
+    # ✅ STANDARDIZE SPECTRUM
+    spec = (spec - spec.mean()) / (spec.std() + 1e-6)
 
     spectral_data.append(spec)
 
 spectral_data = np.array(spectral_data)
 
 print("DATA STD:", np.std(spectral_data))
+print("MIN/MAX:", spectral_data.min(), spectral_data.max())
 
 
 # =========================
 # MODEL
 # =========================
 model = SimpleUNet(emb_dim=256).to(DEVICE)
-scheduler = CosineScheduler(timesteps=200)
+scheduler = CosineScheduler(timesteps=300)
 diffusion = DiffusionModel(model, scheduler, DEVICE)
 
 optimizer = torch.optim.Adam(
@@ -129,12 +130,9 @@ for epoch in range(EPOCHS):
 
         t = torch.randint(0, T, (x.size(0),), device=DEVICE)
 
-        # =========================
-        # 🔥 FIX IS HERE (IMPORTANT)
-        # =========================
+        # ✅ FIXED dtype
         r = torch.from_numpy(regimes_batch).long().to(DEVICE)
 
-        # embeddings
         t_emb = get_timestep_embedding(t, 128)
         r_emb = regime_embed(r)
 

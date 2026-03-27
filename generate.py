@@ -15,9 +15,6 @@ from data.wavelet import compute_cwt
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-# =========================
-# EMBEDDINGS
-# =========================
 def get_timestep_embedding(t, dim=128):
     half = dim // 2
     freqs = torch.exp(
@@ -32,20 +29,15 @@ def get_timestep_embedding(t, dim=128):
 regime_embed = torch.nn.Embedding(3, 128).to(DEVICE)
 
 
-# =========================
-# NORMALIZATION
-# =========================
 def normalize(x):
-    return x / (np.max(np.abs(x)) + 1e-6)
+    x = x - np.mean(x)
+    x = x / (np.std(x) + 1e-6)
+    return x
 
 
-# =========================
-# PLOT
-# =========================
 def plot_sample(sample, title, filename):
     os.makedirs("generated", exist_ok=True)
 
-    plt.figure(figsize=(8, 6))
     plt.imshow(sample, aspect='auto', cmap='viridis')
     plt.colorbar()
     plt.title(title)
@@ -58,9 +50,9 @@ def plot_sample(sample, title, filename):
 # LOAD MODEL
 # =========================
 model = SimpleUNet(emb_dim=256).to(DEVICE)
-scheduler = CosineScheduler(timesteps=200)
+scheduler = CosineScheduler(timesteps=300)
 
-model.load_state_dict(torch.load("checkpoints/final_epoch_30.pt", map_location=DEVICE))
+model.load_state_dict(torch.load("checkpoints/final_epoch_40.pt", map_location=DEVICE))
 model.eval()
 
 T = scheduler.timesteps
@@ -79,7 +71,7 @@ sample = compute_cwt(normalize(windows[0]))
 if sample.ndim == 3:
     sample = sample.mean(axis=0)
 
-sample = sample / (np.max(np.abs(sample)) + 1e-6)
+sample = (sample - sample.mean()) / (sample.std() + 1e-6)
 
 shape = torch.tensor(sample).unsqueeze(0).unsqueeze(0).shape
 
@@ -119,12 +111,12 @@ def sample(shape, regime_label=0):
 
 
 # =========================
-# GENERATE BOTH REGIMES
+# GENERATE
 # =========================
-stable = sample(shape, regime_label=0)
-crisis = sample(shape, regime_label=2)
+stable = sample(shape, 0)
+crisis = sample(shape, 2)
 
-plot_sample(stable, "Stable Regime", "stable_final2.png")
-plot_sample(crisis, "Crisis Regime", "crisis_final2.png")
+plot_sample(stable, "Stable Regime", "stable_done.png")
+plot_sample(crisis, "Crisis Regime", "crisis_done.png")
 
-print("Generation complete.")
+print("DONE")

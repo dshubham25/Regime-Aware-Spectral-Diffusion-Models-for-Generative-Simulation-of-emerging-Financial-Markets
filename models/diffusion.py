@@ -19,5 +19,10 @@ class DiffusionModel:
 
     def loss(self, x, emb, t):
         noisy, noise = self.add_noise(x, t)
+
         noise_pred = self.model(noisy, emb)
-        return F.mse_loss(noise_pred, noise)
+
+        # ✅ FULL LOSS (NO MASK)
+        loss = F.mse_loss(noise_pred, noise)
+
+        return loss
