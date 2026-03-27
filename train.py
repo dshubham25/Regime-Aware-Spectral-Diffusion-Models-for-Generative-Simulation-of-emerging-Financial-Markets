@@ -39,11 +39,12 @@ def get_timestep_embedding(t, dim=128):
     return torch.cat([torch.sin(args), torch.cos(args)], dim=1)
 
 
+# ✅ REGIME EMBEDDING
 regime_embed = torch.nn.Embedding(3, 128).to(DEVICE)
 
 
 # =========================
-# NORMALIZATION (FIXED)
+# NORMALIZATION
 # =========================
 def normalize(x):
     return x / (np.max(np.abs(x)) + 1e-6)
@@ -63,7 +64,7 @@ regimes = assign_regimes(volatility, drawdown)
 
 window_regimes = regimes[-len(windows):]
 
-# ✅ USE FULL DATA (NO FILTERING)
+# ✅ USE FULL DATA
 windows = windows[:1000]
 window_regimes = window_regimes[:1000]
 
@@ -80,18 +81,18 @@ for w in windows:
 
     spec = compute_cwt(w)
 
-    # FIX SHAPE
+    # ✅ FIX SHAPE (remove extra dimension)
     if spec.ndim == 3:
         spec = spec.mean(axis=0)
 
-    # FIX SCALE
+    # ✅ FIX SCALE
     spec = spec / (np.max(np.abs(spec)) + 1e-6)
 
     spectral_data.append(spec)
 
 spectral_data = np.array(spectral_data)
 
-print("DATA STD:", np.std(spectral_data))  # DEBUG
+print("DATA STD:", np.std(spectral_data))
 
 
 # =========================
@@ -128,9 +129,14 @@ for epoch in range(EPOCHS):
 
         t = torch.randint(0, T, (x.size(0),), device=DEVICE)
 
+        # =========================
+        # 🔥 FIX IS HERE (IMPORTANT)
+        # =========================
+        r = torch.from_numpy(regimes_batch).long().to(DEVICE)
+
         # embeddings
         t_emb = get_timestep_embedding(t, 128)
-        r_emb = regime_embed(torch.tensor(regimes_batch, device=DEVICE))
+        r_emb = regime_embed(r)
 
         emb = torch.cat([t_emb, r_emb], dim=1)
 
