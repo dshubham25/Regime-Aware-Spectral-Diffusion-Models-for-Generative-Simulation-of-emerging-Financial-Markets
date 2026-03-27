@@ -1,111 +1,109 @@
 import torch
-from torch.utils.data import DataLoader
+import numpy as np
 from tqdm import tqdm
-import os
+
+from models.unet import SimpleUNet
+from models.diffusion import DiffusionModel
+from models.scheduler import CosineScheduler
 
 from data.load_data import load_nifty
 from data.features import compute_log_returns
 from data.windowing import create_windows
+from data.wavelet import compute_cwt
 from data.regime import compute_volatility, compute_drawdown, assign_regimes
-from data.dataset import SpectralDataset
-
-from models.scheduler import CosineScheduler
-from models.unet import SimpleUNet
-from models.diffusion import DiffusionModel
-from models.embeddings import SinusoidalPositionEmbeddings, RegimeEmbedding
-from models.ema import EMA
-
-from config import WINDOW_TOTAL, STEP_SIZE
 
 
-# DEVICE SETUP
+# =========================
+# CONFIG
+# =========================
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-print("Using device:", DEVICE)
-
 EPOCHS = 20
 BATCH_SIZE = 16
-LR = 2e-4
+LR = 1e-4
 
 
-# DATA PREPARATION
+# =========================
+# LOAD DATA
+# =========================
 df = load_nifty("data_files/Nifty50(2008-2025).csv")
 
-returns = compute_log_returns(df['Close'].values)
+returns = compute_log_returns(df["Close"].values)
 windows = create_windows(returns)
 
 volatility = compute_volatility(returns)
-drawdown = compute_drawdown(df['Close'].values[1:])
+drawdown = compute_drawdown(df["Close"].values[1:])
 regimes = assign_regimes(volatility, drawdown)
 
-# Align regimes to windows
-window_regimes = []
-for i in range(0, len(returns) - WINDOW_TOTAL, STEP_SIZE):
-    window_regimes.append(regimes[i + WINDOW_TOTAL - 1])
-
-window_regimes = torch.tensor(window_regimes)
-
-dataset = SpectralDataset(windows, window_regimes)
-dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
+window_regimes = regimes[-len(windows):]
 
 
-# MODEL SETUP
-scheduler = CosineScheduler()
+def normalize(x):
+    return (x - x.mean()) / (x.std() + 1e-6)
 
+
+spectral_data = []
+for w in windows:
+    w = normalize(w)
+    spec = compute_cwt(w)
+    spectral_data.append(spec)
+
+spectral_data = np.array(spectral_data)
+
+
+# =========================
+# MODEL + DIFFUSION
+# =========================
 model = SimpleUNet(emb_dim=256).to(DEVICE)
-ema = EMA(model)
-
-timestep_embed = SinusoidalPositionEmbeddings(128).to(DEVICE)
-regime_embed = RegimeEmbedding(num_regimes=3, emb_dim=128).to(DEVICE)
-
+scheduler = CosineScheduler()
 diffusion = DiffusionModel(model, scheduler, DEVICE)
 
-optimizer = torch.optim.AdamW(
-    list(model.parameters()) +
-    list(timestep_embed.parameters()) +
-    list(regime_embed.parameters()),
-    lr=LR
-)
+optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
-# TRAINING LOOP
-os.makedirs("checkpoints", exist_ok=True)
+T = scheduler.timesteps
+
+# 🔥 IMPORTANT: embeddings
+timestep_embed = torch.nn.Embedding(T, 128).to(DEVICE)
+regime_embed = torch.nn.Embedding(3, 128).to(DEVICE)
+
+
+# =========================
+# TRAIN LOOP
+# =========================
+model.train()
 
 for epoch in range(EPOCHS):
-    model.train()
-    epoch_loss = 0
+    total_loss = 0
 
-    loop = tqdm(dataloader, leave=True)
+    indices = np.random.permutation(len(spectral_data))
 
-    for spectral, regime in loop:
-        spectral = spectral.to(DEVICE)
-        regime = regime.to(DEVICE)
+    for i in tqdm(range(0, len(indices), BATCH_SIZE)):
+        batch_idx = indices[i:i+BATCH_SIZE]
 
-        # Sample timestep
-        t = torch.randint(0, scheduler.timesteps, (spectral.size(0),), device=DEVICE)
+        batch = spectral_data[batch_idx]
+        regime_batch = window_regimes[batch_idx]
 
-        # Embeddings
+        x = torch.tensor(batch).unsqueeze(1).float().to(DEVICE)
+        regime_batch = torch.tensor(regime_batch).long().to(DEVICE)
+
+        # sample timestep
+        t = torch.randint(0, T, (x.size(0),), device=DEVICE)
+
+        # 🔥 FIX: proper embeddings
         t_emb = timestep_embed(t)
-        r_emb = regime_embed(regime)
-        emb = torch.cat([t_emb, r_emb], dim=1)
+        r_emb = regime_embed(regime_batch)
 
-        # Diffusion loss
-        loss = diffusion.loss(spectral, emb, t)
+        emb = torch.cat([t_emb, r_emb], dim=1)  # 256-dim
+
+        loss = diffusion.loss(x, emb, t)
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        # EMA update
-        ema.update(model)
+        total_loss += loss.item()
 
-        epoch_loss += loss.item()
+    avg_loss = total_loss / (len(indices) // BATCH_SIZE)
+    print(f"Epoch {epoch+1}/{EPOCHS} | Avg Loss: {avg_loss:.6f}")
 
-        loop.set_postfix(loss=loss.item())
-
-    avg_loss = epoch_loss / len(dataloader)
-    print(f"\nEpoch {epoch+1}/{EPOCHS} | Avg Loss: {avg_loss:.6f}")
-
-    # Save EMA model (IMPORTANT)
-    torch.save(
-        ema.ema_model.state_dict(),
-        f"checkpoints/ema_epoch_{epoch+1}.pt"
-    )
+    # save checkpoint
+    torch.save(model.state_dict(), f"checkpoints/ema_epoch_{epoch+1}.pt")
