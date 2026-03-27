@@ -26,7 +26,7 @@ os.makedirs("checkpoints", exist_ok=True)
 
 
 # =========================
-# TIMESTEP EMBEDDING
+# EMBEDDING
 # =========================
 def get_timestep_embedding(t, dim=256):
     half = dim // 2
@@ -40,14 +40,12 @@ def get_timestep_embedding(t, dim=256):
 
 
 # =========================
-# ✅ FINAL NORMALIZATION (CRITICAL FIX)
+# NORMALIZATION (FINAL)
 # =========================
 def normalize(x):
     x = np.abs(x)
     x = np.log1p(x)
-
     x = (x - x.mean()) / (x.std() + 1e-6)
-
     return x
 
 
@@ -63,28 +61,39 @@ volatility = compute_volatility(returns)
 drawdown = compute_drawdown(df["Close"].values[1:])
 regimes = assign_regimes(volatility, drawdown)
 
-window_regimes = regimes[-len(windows)]
+window_regimes = regimes[-len(windows):]
 
 
 # =========================
-# ONLY STABLE REGIME
+# SAFE FILTERING
 # =========================
 mask = (window_regimes == 0)
 
-windows = windows[mask]
+if mask.sum() > 10:
+    windows = windows[mask]
+    print("Using only stable regime")
+else:
+    print("Not enough stable samples, using full dataset")
+
+# reduce size for learning stability
 windows = windows[:200]
 
 print("Training samples:", len(windows))
 
 
 # =========================
-# SPECTRAL DATA
+# CREATE SPECTRAL DATA
 # =========================
 spectral_data = []
 
 for w in windows:
     w = normalize(w)
     spec = compute_cwt(w)
+
+    # ✅ CRITICAL FIX: ensure 2D
+    if spec.ndim == 3:
+        spec = spec.mean(axis=0)
+
     spectral_data.append(spec)
 
 spectral_data = np.array(spectral_data)
@@ -103,7 +112,7 @@ T = scheduler.timesteps
 
 
 # =========================
-# TRAIN
+# TRAIN LOOP
 # =========================
 model.train()
 

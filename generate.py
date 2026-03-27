@@ -30,7 +30,7 @@ def get_timestep_embedding(t, dim=256):
 
 
 # =========================
-# SAME NORMALIZATION
+# NORMALIZATION
 # =========================
 def normalize(x):
     x = np.abs(x)
@@ -40,13 +40,12 @@ def normalize(x):
 
 
 # =========================
-# FIXED PLOT
+# PLOTTING FIX
 # =========================
 def plot_sample(sample, title, filename):
     os.makedirs("generated", exist_ok=True)
 
     plt.figure(figsize=(8, 6))
-
     plt.imshow(sample, aspect='auto', cmap='viridis', vmin=-2, vmax=2)
     plt.colorbar()
     plt.title(title)
@@ -56,7 +55,7 @@ def plot_sample(sample, title, filename):
 
 
 # =========================
-# MODEL
+# LOAD MODEL
 # =========================
 model = SimpleUNet(emb_dim=256).to(DEVICE)
 scheduler = CosineScheduler(timesteps=200)
@@ -76,6 +75,11 @@ returns = compute_log_returns(df["Close"].values)
 windows = create_windows(returns)
 
 sample = compute_cwt(normalize(windows[0]))
+
+# ✅ SAME FIX HERE
+if sample.ndim == 3:
+    sample = sample.mean(axis=0)
+
 shape = torch.tensor(sample).unsqueeze(0).unsqueeze(0).shape
 
 
@@ -115,6 +119,6 @@ def sample(shape):
 # =========================
 sample_out = sample(shape)
 
-plot_sample(sample_out, "Generated (Fixed)", "stable_fixed1.png")
+plot_sample(sample_out, "Generated (Fixed Pipeline)", "stable_fixed1.png")
 
 print("Done.")
