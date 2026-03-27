@@ -132,8 +132,8 @@ crisis_sample = sample_conditioned(shape, 2)
 
 # SAVE OUTPUT
 
-plot_sample(stable_sample, "Generated Stable Spectral Map", "stable.png")
-plot_sample(crisis_sample, "Generated Crisis Spectral Map", "crisis.png")
+plot_sample(stable_sample, "Generated Stable Spectral Map", "stable6.png")
+plot_sample(crisis_sample, "Generated Crisis Spectral Map", "crisis6.png")
 
 
 print("✅ Generation complete. Check 'generated/' folder.")
