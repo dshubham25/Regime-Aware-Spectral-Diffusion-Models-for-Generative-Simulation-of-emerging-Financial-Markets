@@ -16,9 +16,9 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 # =========================
-# EMBEDDING
+# EMBEDDINGS
 # =========================
-def get_timestep_embedding(t, dim=256):
+def get_timestep_embedding(t, dim=128):
     half = dim // 2
     freqs = torch.exp(
         -torch.log(torch.tensor(10000.0)) *
@@ -29,24 +29,24 @@ def get_timestep_embedding(t, dim=256):
     return torch.cat([torch.sin(args), torch.cos(args)], dim=1)
 
 
+regime_embed = torch.nn.Embedding(3, 128).to(DEVICE)
+
+
 # =========================
 # NORMALIZATION
 # =========================
 def normalize(x):
-    x = np.abs(x)
-    x = np.log1p(x)
-    x = (x - x.mean()) / (x.std() + 1e-6)
-    return x
+    return x / (np.max(np.abs(x)) + 1e-6)
 
 
 # =========================
-# PLOTTING FIX
+# PLOT
 # =========================
 def plot_sample(sample, title, filename):
     os.makedirs("generated", exist_ok=True)
 
     plt.figure(figsize=(8, 6))
-    plt.imshow(sample, aspect='auto', cmap='viridis', vmin=-2, vmax=2)
+    plt.imshow(sample, aspect='auto', cmap='viridis')
     plt.colorbar()
     plt.title(title)
 
@@ -60,14 +60,14 @@ def plot_sample(sample, title, filename):
 model = SimpleUNet(emb_dim=256).to(DEVICE)
 scheduler = CosineScheduler(timesteps=200)
 
-model.load_state_dict(torch.load("checkpoints/debug_epoch_3.pt", map_location=DEVICE))
+model.load_state_dict(torch.load("checkpoints/final_epoch_30.pt", map_location=DEVICE))
 model.eval()
 
 T = scheduler.timesteps
 
 
 # =========================
-# GET SHAPE
+# SHAPE
 # =========================
 df = load_nifty("data_files/Nifty50(2008-2025).csv")
 
@@ -76,9 +76,10 @@ windows = create_windows(returns)
 
 sample = compute_cwt(normalize(windows[0]))
 
-# ✅ SAME FIX HERE
 if sample.ndim == 3:
     sample = sample.mean(axis=0)
+
+sample = sample / (np.max(np.abs(sample)) + 1e-6)
 
 shape = torch.tensor(sample).unsqueeze(0).unsqueeze(0).shape
 
@@ -87,7 +88,7 @@ shape = torch.tensor(sample).unsqueeze(0).unsqueeze(0).shape
 # SAMPLING
 # =========================
 @torch.no_grad()
-def sample(shape):
+def sample(shape, regime_label=0):
     x = torch.randn(shape).to(DEVICE)
 
     alphas = scheduler.alphas.to(DEVICE)
@@ -97,7 +98,10 @@ def sample(shape):
     for t in reversed(range(T)):
         t_tensor = torch.tensor([t], device=DEVICE)
 
-        emb = get_timestep_embedding(t_tensor, 256)
+        t_emb = get_timestep_embedding(t_tensor, 128)
+        r_emb = regime_embed(torch.tensor([regime_label], device=DEVICE))
+
+        emb = torch.cat([t_emb, r_emb], dim=1)
 
         noise_pred = model(x, emb)
 
@@ -115,10 +119,12 @@ def sample(shape):
 
 
 # =========================
-# GENERATE
+# GENERATE BOTH REGIMES
 # =========================
-sample_out = sample(shape)
+stable = sample(shape, regime_label=0)
+crisis = sample(shape, regime_label=2)
 
-plot_sample(sample_out, "Generated (Fixed Pipeline)", "stable_fixed1.png")
+plot_sample(stable, "Stable Regime", "stable_final2.png")
+plot_sample(crisis, "Crisis Regime", "crisis_final2.png")
 
-print("Done.")
+print("Generation complete.")

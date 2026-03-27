@@ -18,17 +18,17 @@ from data.regime import compute_volatility, compute_drawdown, assign_regimes
 # CONFIG
 # =========================
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-EPOCHS = 3
+EPOCHS = 30
 BATCH_SIZE = 16
-LR = 3e-4
+LR = 2e-4
 
 os.makedirs("checkpoints", exist_ok=True)
 
 
 # =========================
-# EMBEDDING
+# EMBEDDINGS
 # =========================
-def get_timestep_embedding(t, dim=256):
+def get_timestep_embedding(t, dim=128):
     half = dim // 2
     freqs = torch.exp(
         -torch.log(torch.tensor(10000.0)) *
@@ -39,14 +39,14 @@ def get_timestep_embedding(t, dim=256):
     return torch.cat([torch.sin(args), torch.cos(args)], dim=1)
 
 
+regime_embed = torch.nn.Embedding(3, 128).to(DEVICE)
+
+
 # =========================
-# NORMALIZATION (FINAL)
+# NORMALIZATION (FIXED)
 # =========================
 def normalize(x):
-    x = np.abs(x)
-    x = np.log1p(x)
-    x = (x - x.mean()) / (x.std() + 1e-6)
-    return x
+    return x / (np.max(np.abs(x)) + 1e-6)
 
 
 # =========================
@@ -63,20 +63,9 @@ regimes = assign_regimes(volatility, drawdown)
 
 window_regimes = regimes[-len(windows):]
 
-
-# =========================
-# SAFE FILTERING
-# =========================
-mask = (window_regimes == 0)
-
-if mask.sum() > 10:
-    windows = windows[mask]
-    print("Using only stable regime")
-else:
-    print("Not enough stable samples, using full dataset")
-
-# reduce size for learning stability
-windows = windows[:200]
+# ✅ USE FULL DATA (NO FILTERING)
+windows = windows[:1000]
+window_regimes = window_regimes[:1000]
 
 print("Training samples:", len(windows))
 
@@ -88,15 +77,21 @@ spectral_data = []
 
 for w in windows:
     w = normalize(w)
+
     spec = compute_cwt(w)
 
-    # ✅ CRITICAL FIX: ensure 2D
+    # FIX SHAPE
     if spec.ndim == 3:
         spec = spec.mean(axis=0)
+
+    # FIX SCALE
+    spec = spec / (np.max(np.abs(spec)) + 1e-6)
 
     spectral_data.append(spec)
 
 spectral_data = np.array(spectral_data)
+
+print("DATA STD:", np.std(spectral_data))  # DEBUG
 
 
 # =========================
@@ -106,7 +101,10 @@ model = SimpleUNet(emb_dim=256).to(DEVICE)
 scheduler = CosineScheduler(timesteps=200)
 diffusion = DiffusionModel(model, scheduler, DEVICE)
 
-optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+optimizer = torch.optim.Adam(
+    list(model.parameters()) + list(regime_embed.parameters()),
+    lr=LR
+)
 
 T = scheduler.timesteps
 
@@ -124,12 +122,17 @@ for epoch in range(EPOCHS):
         batch_idx = indices[i:i+BATCH_SIZE]
 
         batch = spectral_data[batch_idx]
+        regimes_batch = window_regimes[batch_idx]
 
         x = torch.tensor(batch).unsqueeze(1).float().to(DEVICE)
 
         t = torch.randint(0, T, (x.size(0),), device=DEVICE)
 
-        emb = get_timestep_embedding(t, 256)
+        # embeddings
+        t_emb = get_timestep_embedding(t, 128)
+        r_emb = regime_embed(torch.tensor(regimes_batch, device=DEVICE))
+
+        emb = torch.cat([t_emb, r_emb], dim=1)
 
         loss = diffusion.loss(x, emb, t)
 
@@ -141,4 +144,4 @@ for epoch in range(EPOCHS):
 
     print(f"Epoch {epoch+1}/{EPOCHS} | Loss: {total_loss:.4f}")
 
-    torch.save(model.state_dict(), f"checkpoints/debug_epoch_{epoch+1}.pt")
+    torch.save(model.state_dict(), f"checkpoints/final_epoch_{epoch+1}.pt")
