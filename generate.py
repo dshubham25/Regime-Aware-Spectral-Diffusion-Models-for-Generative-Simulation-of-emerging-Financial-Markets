@@ -10,16 +10,16 @@ from data.load_data import load_nifty
 from data.features import compute_log_returns
 from data.windowing import create_windows
 from data.wavelet import compute_cwt
-from data.regime import compute_volatility, compute_drawdown, assign_regimes
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def get_timestep_embedding(t, dim=128):
+def get_timestep_embedding(t, dim=256):
     half = dim // 2
     freqs = torch.exp(
-        -torch.log(torch.tensor(10000.0)) * torch.arange(0, half) / half
+        -torch.log(torch.tensor(10000.0)) *
+        torch.arange(0, half) / half
     ).to(t.device)
 
     args = t[:, None] * freqs[None]
@@ -46,21 +46,16 @@ def plot_sample(sample, title, filename):
 # MODEL
 # =========================
 model = SimpleUNet(emb_dim=256).to(DEVICE)
-scheduler = CosineScheduler()
-T = scheduler.timesteps
+scheduler = CosineScheduler(timesteps=200)
 
-regime_embed = torch.nn.Embedding(3, 128).to(DEVICE)
-
-ckpt = torch.load("checkpoints/ema_epoch_5.pt", map_location=DEVICE)
-
-model.load_state_dict(ckpt["model"])
-regime_embed.load_state_dict(ckpt["r_embed"])
-
+model.load_state_dict(torch.load("checkpoints/debug_epoch_3.pt", map_location=DEVICE))
 model.eval()
+
+T = scheduler.timesteps
 
 
 # =========================
-# SHAPE FROM DATA
+# GET SHAPE
 # =========================
 df = load_nifty("data_files/Nifty50(2008-2025).csv")
 
@@ -75,7 +70,7 @@ shape = torch.tensor(sample).unsqueeze(0).unsqueeze(0).shape
 # SAMPLING
 # =========================
 @torch.no_grad()
-def sample(shape, regime_label):
+def sample(shape):
     x = torch.randn(shape).to(DEVICE)
 
     alphas = scheduler.alphas.to(DEVICE)
@@ -85,10 +80,7 @@ def sample(shape, regime_label):
     for t in reversed(range(T)):
         t_tensor = torch.tensor([t], device=DEVICE)
 
-        emb = torch.cat([
-            get_timestep_embedding(t_tensor, 128),
-            regime_embed(torch.tensor([regime_label], device=DEVICE))
-        ], dim=1)
+        emb = get_timestep_embedding(t_tensor, 256)
 
         noise_pred = model(x, emb)
 
@@ -105,9 +97,11 @@ def sample(shape, regime_label):
     return x.squeeze().cpu().numpy()
 
 
-stable = sample(shape, 0)
-crisis = sample(shape, 2)
+# =========================
+# GENERATE
+# =========================
+sample_out = sample(shape)
 
-plot_sample(stable, "Stable", "stableUpdated1.png")
-plot_sample(crisis, "Crisis", "crisisUpdated1.png")
+plot_sample(sample_out, "Generated (Stable Only)", "stable_debug.png")
 
+print("Done.")
