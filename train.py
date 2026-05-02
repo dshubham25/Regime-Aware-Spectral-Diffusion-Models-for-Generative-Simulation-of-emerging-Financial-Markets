@@ -156,6 +156,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 import os
+import json
 
 from models.unet import SimpleUNet
 from models.diffusion import DiffusionModel
@@ -178,6 +179,7 @@ LR = 3e-4              # ✅ bumped from 1e-4
 GRAD_CLIP = 1.0        # ✅ gradient clipping
 
 os.makedirs("checkpoints", exist_ok=True)
+os.makedirs("results", exist_ok=True)
 print(f"Using device: {DEVICE}")
 
 
@@ -368,3 +370,35 @@ if improvement < 20:
     print("⚠ WARNING: Loss barely improved — consider more epochs or check data pipeline")
 else:
     print("✓ Training looks healthy")
+
+training_summary = {
+    "device": DEVICE,
+    "epochs": EPOCHS,
+    "batch_size": BATCH_SIZE,
+    "learning_rate": LR,
+    "gradient_clip": GRAD_CLIP,
+    "training_samples": int(len(windows)),
+    "regime_counts": {str(k): int(v) for k, v in zip(*np.unique(window_regimes, return_counts=True))},
+    "spectral_shape": list(spectral_data.shape),
+    "epoch_1_loss": float(loss_history[0]),
+    "final_loss": float(loss_history[-1]),
+    "improvement_percent": float(improvement)
+}
+
+with open("results/training_summary.json", "w", encoding="ascii") as f:
+    json.dump(training_summary, f, indent=2)
+
+with open("results/training_summary.txt", "w", encoding="ascii") as f:
+    f.write(f"Device: {DEVICE}\n")
+    f.write(f"Epochs: {EPOCHS}\n")
+    f.write(f"Batch size: {BATCH_SIZE}\n")
+    f.write(f"Learning rate: {LR}\n")
+    f.write(f"Gradient clip: {GRAD_CLIP}\n")
+    f.write(f"Training samples: {len(windows)}\n")
+    f.write(f"Regime counts: {training_summary['regime_counts']}\n")
+    f.write(f"Spectral shape: {tuple(spectral_data.shape)}\n")
+    f.write(f"Epoch 1 loss: {loss_history[0]:.4f}\n")
+    f.write(f"Final loss: {loss_history[-1]:.4f}\n")
+    f.write(f"Improvement percent: {improvement:.2f}\n")
+
+print("Saved training summary to results/training_summary.json and .txt")

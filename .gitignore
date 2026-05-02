@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+
+checkpoints/
+generated/
+results/
+backup/
+
+*.pt
+*.png
+*.log
+
+.env

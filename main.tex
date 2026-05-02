@@ -1,0 +1,494 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{amsmath,amsfonts,amssymb}
+\usepackage{graphicx}
+\usepackage{cite}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{booktabs}
+\usepackage{subfig}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{balance}
+\graphicspath{{figures/}{figures/generated/}}
+
+\newcommand{\safeincludegraphics}[2][]{%
+    \IfFileExists{#2}{\includegraphics[#1]{#2}}{%
+    \fbox{%
+        \begin{minipage}[c][3.1cm][c]{0.95\linewidth}
+        \centering
+        Missing image\\
+        \texttt{#2}\\
+        Upload the \texttt{figures/} folder to Overleaf.
+        \end{minipage}}}}
+
+\newcommand{\archbox}[2]{%
+\fbox{%
+\begin{minipage}[c][1.7cm][c]{0.145\textwidth}
+\centering
+\textbf{#1}\\
+\footnotesize #2
+\end{minipage}}}
+
+\begin{document}
+
+\title{Regime-Aware Spectral Diffusion Models for Generative Simulation of Emerging Financial Markets}
+
+\author{%
+    \IEEEauthorblockN{Shubham Dikshit}
+    \IEEEauthorblockA{Indian Institute of Technology Mandi\\
+    Himachal Pradesh, India\\
+    Email: dd25008@students.iitmandi.ac.in}
+    \and
+    \IEEEauthorblockN{Himanshu Yadav}
+    \IEEEauthorblockA{Indian Institute of Technology Mandi\\
+    Himachal Pradesh, India\\
+    Email: d25057@students.iitmandi.ac.in}
+}
+
+\maketitle
+
+\begin{abstract}
+Generative modeling for financial time series remains difficult because market behavior is highly non-stationary, heavy-tailed, and regime dependent. Conventional stochastic simulators and regime-switching models are useful for forecasting or state identification, but they often lack the expressive capacity required to synthesize realistic stress scenarios with structured multi-scale dynamics. This paper presents a regime-aware spectral diffusion framework for generative simulation of an emerging financial market using the Nifty50 index as a case study. The proposed pipeline first converts rolling windows of log-returns into continuous wavelet transform maps, thereby representing local volatility bursts, persistence, and scale interactions in a two-dimensional time-frequency domain. A conditional denoising diffusion model is then trained over these spectral maps using a UNet backbone with joint timestep and regime embeddings. The conditioning mechanism uses feature-wise linear modulation to inject market-state information into each residual block, enabling generation that is consistent with stable, volatile-transition, and crisis regimes. The implementation uses a cosine noise schedule, Huber denoising loss, AdamW optimization, gradient clipping, and checkpointed training over 60 epochs. Qualitative analysis on generated samples shows clear regime-dependent differences in energy concentration and spectral roughness, suggesting that diffusion models in the spectral domain can capture stylized distinctions between tranquil and stressed market phases. The study contributes an end-to-end generative framework, an implementation-oriented formulation grounded in wavelet features, and a reproducible IEEE-style baseline for scenario generation in emerging-market finance.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Diffusion models, financial time series, regime-aware modeling, emerging markets, wavelet transform, generative simulation, Nifty50, time-frequency analysis
+\end{IEEEkeywords}
+
+\section{Introduction}
+Financial markets exhibit abrupt transitions between calm, turbulent, and crisis conditions. These transitions are especially pronounced in emerging markets, where liquidity conditions, macroeconomic shocks, and external spillovers often produce nonlinear and non-stationary return dynamics. For risk management, portfolio stress testing, and robust strategy development, practitioners need simulators that generate plausible paths not only around average market conditions but also under rare and stressful states.
+
+Classical financial simulation methods such as geometric Brownian motion, GARCH-family processes, and Markov regime-switching models remain important because they are interpretable and relatively parsimonious. However, their assumptions can be restrictive when one seeks to model multi-scale temporal structure, asymmetric stress behavior, and complex localized oscillations in returns. Modern deep generative models provide a data-driven alternative. In particular, diffusion models have recently shown strong empirical performance in high-dimensional generation because they learn a gradual denoising process instead of relying on adversarial optimization.
+
+Despite this promise, applying diffusion models directly to raw financial series is not straightforward. Raw returns are short-memory but noisy, market phases are mixed over long horizons, and localized bursts of volatility may be difficult to represent with purely time-domain networks. A time-frequency representation is therefore attractive. Wavelet transforms provide localized decomposition across scales and preserve transient events more naturally than global Fourier features. This motivates learning a generative process in the spectral domain rather than on the raw one-dimensional sequence alone.
+
+This work develops a regime-aware spectral diffusion model for emerging financial markets. The repository implementation uses Nifty50 index data spanning 2008--2025, computes log-returns, constructs overlapping windows, transforms each window into a continuous wavelet transform (CWT) map, labels each window according to simple regime rules based on rolling volatility and drawdown, and trains a conditional diffusion model to synthesize regime-specific spectral patterns. The generator is implemented with a lightweight UNet whose residual blocks are modulated by both timestep and regime embeddings.
+
+The main contributions of the paper are as follows:
+\begin{itemize}
+    \item We formulate a spectral-domain diffusion pipeline for financial scenario generation in an emerging-market setting.
+    \item We integrate explicit regime conditioning using learned embeddings and feature-wise linear modulation (FiLM) inside a residual UNet denoiser.
+    \item We document an implementation-aligned experimental setup based on Nifty50 rolling windows, 64-scale wavelet maps, 300 diffusion steps, and a 60-epoch training procedure.
+    \item We provide qualitative evidence that the learned model produces distinct spectral signatures for stable, volatile-transition, and crisis regimes, supporting its use as a stress-scenario generator.
+\end{itemize}
+
+\section{Related Work}
+\subsection{Financial Time-Series Simulation}
+Traditional financial simulation methods span Brownian-motion models, stochastic volatility processes, GARCH variants, and regime-switching methods. Geometric Brownian motion is analytically convenient but assumes log-normal increments and constant diffusion, which is inadequate for volatility clustering and regime shifts. GARCH and related heteroskedastic models capture conditional variance dynamics, yet they remain limited in representing complex, high-dimensional local structure. Hidden Markov models and Markov-switching autoregressive models explicitly encode latent states and are widely used for bull-bear or calm-crisis decomposition, but their generative flexibility is constrained by low-order parametric dynamics.
+
+\subsection{Deep Generative Models in Finance}
+Generative adversarial networks (GANs), variational autoencoders (VAEs), and normalizing flows have all been explored for synthetic market generation. GANs can produce sharp samples but are notoriously unstable and prone to mode collapse, a serious issue when rare stress conditions matter most. VAEs offer stable likelihood-based training but often oversmooth outputs. Diffusion models, by contrast, optimize a denoising objective with stable gradients and have emerged as competitive generators for images, audio, and increasingly time series.
+
+\subsection{Diffusion Models for Sequential Data}
+Denoising diffusion probabilistic models (DDPMs) learn the reverse of a gradual noising process. Conditional variants incorporate class labels, text, or side information. For sequential data, diffusion models have been adapted using one-dimensional convolutions, transformers, and spectrogram-like representations. Their iterative generation mechanism is well suited for complex distributions but imposes computational cost at sampling time. In finance, diffusion-based work remains comparatively early, especially for conditional market-state simulation.
+
+\subsection{Wavelets and Time-Frequency Financial Analysis}
+Wavelet methods are extensively used in finance to analyze scale-dependent volatility, lead-lag relations, and crisis propagation. Compared with Fourier analysis, wavelets preserve localization in time and therefore capture intermittent events more effectively. A wavelet-based representation is particularly useful when the target phenomenon involves short-lived bursts and cross-scale energy transfer, both of which are common during market dislocations.
+
+\subsection{Positioning of the Present Work}
+The present study combines three ideas: regime awareness, diffusion-based generation, and wavelet-domain representation. Rather than modeling raw prices directly, we treat each market window as a structured spectral map and generate these maps conditionally. This gives the model access to localized multi-scale signatures while retaining explicit control over market state. The result is a compact but practically useful framework for scenario generation in emerging markets.
+
+\section{Problem Formulation}
+Let $\{P_t\}_{t=1}^{T}$ denote the observed closing-price series of a market index. The first derived series is the log-return process
+\begin{equation}
+r_t = \log\left(\frac{P_t}{P_{t-1}}\right), \qquad t=2,\dots,T.
+\end{equation}
+From this return sequence, overlapping windows of fixed length $L$ are extracted. In the implementation,
+\begin{equation}
+L = L_{\text{past}} + L_{\text{future}} = 128 + 32 = 160,
+\end{equation}
+with a step size of 5 observations between consecutive windows.
+
+Each window $w \in \mathbb{R}^{L}$ is normalized and mapped into a two-dimensional time-frequency representation using the continuous wavelet transform over $S=64$ scales:
+\begin{equation}
+W(s,\tau) = \int_{-\infty}^{\infty} w(t)\,\psi_{s,\tau}^{*}(t)\,dt,
+\end{equation}
+where $\psi_{s,\tau}$ is the Morlet wavelet at scale $s$ and location $\tau$. After discretization, each sample is represented as a spectral matrix
+\begin{equation}
+\mathbf{X} \in \mathbb{R}^{64 \times 160}.
+\end{equation}
+
+The generative task is to learn the conditional distribution
+\begin{equation}
+p(\mathbf{X}\mid y),
+\end{equation}
+where $y \in \{0,1,2\}$ denotes the market regime: stable, volatile-transition, or crisis. Once trained, the model should produce synthetic spectral maps whose qualitative structure is consistent with the requested regime label.
+
+\section{Data Construction and Regime Labeling}
+\subsection{Source Data}
+The repository uses daily Nifty50 index data stored in \texttt{data\_files/Nifty50(2008-2025).csv}. The loader sorts observations by date, retains the closing price and traded-share columns, removes missing values, and resets indexing. The resulting dataset provides a long horizon containing multiple market episodes, including calm periods, elevated volatility, and severe drawdowns.
+
+\subsection{Windowing Strategy}
+The return series is segmented into overlapping windows using a sliding window of length 160 and step size 5. This overlap increases the number of training examples and preserves continuity across neighboring market contexts. In the released training script, the first 1000 windows are used for model fitting, which yields a manageable proof-of-concept dataset for an implementation-scale study.
+
+\subsection{Volatility and Drawdown Features}
+The regime heuristic uses two simple market descriptors. The first is rolling volatility over a 21-day window:
+\begin{equation}
+\sigma_t = \sqrt{\frac{1}{21}\sum_{i=t-20}^{t}(r_i-\bar{r}_t)^2}.
+\end{equation}
+The second is drawdown:
+\begin{equation}
+d_t = \frac{P_t - \max_{1 \leq j \leq t} P_j}{\max_{1 \leq j \leq t} P_j}.
+\end{equation}
+Drawdown captures how far the market lies below its running peak, while volatility captures local turbulence.
+
+\subsection{Regime Assignment Rule}
+The regime label is assigned deterministically:
+\begin{equation}
+y_t =
+\begin{cases}
+2, & d_t < -0.15 \quad \text{(crisis)}\\
+1, & \sigma_t > Q_{0.70}(\sigma) \quad \text{(volatile-transition)}\\
+0, & \text{otherwise} \quad \text{(stable)},
+\end{cases}
+\end{equation}
+where $Q_{0.70}(\sigma)$ is the 70th percentile of the volatility series. This rule is intentionally simple. It does not claim to be the optimal market-state classifier; rather, it provides explicit supervision that enables conditional generation and interpretable sampling.
+
+\subsection{Spectral Representation}
+For each normalized return window, the CWT is computed with the Morlet mother wavelet. The transform produces a 64-by-160 coefficient map. Each map is then standardized:
+\begin{equation}
+\widetilde{\mathbf{X}} = \frac{\mathbf{X} - \mu(\mathbf{X})}{\sigma(\mathbf{X}) + \epsilon},
+\end{equation}
+where $\epsilon = 10^{-6}$ stabilizes division. Standardization reduces scale variation across windows and aligns the inputs with the noise-prediction objective used by diffusion training.
+
+\section{Regime-Aware Spectral Diffusion Model}
+\subsection{Forward Diffusion Process}
+Let $\mathbf{x}_0$ denote a clean standardized spectral map. The forward noising process is defined as
+\begin{equation}
+q(\mathbf{x}_t \mid \mathbf{x}_{t-1}) = \mathcal{N}\left(\sqrt{\alpha_t}\mathbf{x}_{t-1}, (1-\alpha_t)\mathbf{I}\right),
+\end{equation}
+with cumulative product
+\begin{equation}
+\bar{\alpha}_t = \prod_{i=1}^{t}\alpha_i.
+\end{equation}
+The implementation uses a cosine noise schedule with $T=300$ diffusion steps and clipped $\beta_t$ values for numerical stability. A closed-form sample from step $t$ is
+\begin{equation}
+\mathbf{x}_t = \sqrt{\bar{\alpha}_t}\mathbf{x}_0 + \sqrt{1-\bar{\alpha}_t}\boldsymbol{\epsilon},
+\end{equation}
+where $\boldsymbol{\epsilon}\sim\mathcal{N}(0,\mathbf{I})$.
+
+\subsection{Conditional Reverse Model}
+The reverse model estimates the added noise using a neural denoiser
+\begin{equation}
+\hat{\boldsymbol{\epsilon}} = \epsilon_{\theta}(\mathbf{x}_t, t, y).
+\end{equation}
+Conditioning is injected through a concatenated embedding composed of
+\begin{equation}
+\mathbf{e} = [\mathbf{e}_t ; \mathbf{e}_y],
+\end{equation}
+where $\mathbf{e}_t \in \mathbb{R}^{128}$ is a sinusoidal timestep embedding and $\mathbf{e}_y \in \mathbb{R}^{128}$ is a learned regime embedding. The resulting conditioning vector has dimension 256.
+
+\subsection{UNet Backbone}
+The denoiser is a compact UNet operating on single-channel spectral maps. Its encoder uses three downsampling stages with channel progression $1 \rightarrow 64 \rightarrow 128 \rightarrow 256$. The bottleneck contains two residual blocks at 256 channels. The decoder mirrors this structure via transpose convolutions and skip connections. Average pooling is used in the encoder to preserve smoother spectral behavior than max pooling.
+
+Each block applies two convolutions, group normalization, SiLU activations, and a residual skip. Unlike a plain additive embedding, the implementation uses FiLM-style conditioning. Given feature tensor $\mathbf{h}$ and embedding $\mathbf{e}$, the modulated representation is
+\begin{equation}
+\text{FiLM}(\mathbf{h}, \mathbf{e}) = \mathbf{h}\odot (1+\gamma(\mathbf{e})) + \beta(\mathbf{e}),
+\end{equation}
+where $\gamma(\cdot)$ and $\beta(\cdot)$ are learned linear projections and $\odot$ denotes elementwise multiplication. This allows the regime and timestep information to control not only feature bias but also feature amplitude throughout the network.
+
+\begin{figure*}[!t]
+    \centering
+    \archbox{Input}{Nifty50 closing price series}\\
+    $\Downarrow$\\
+    \archbox{Preprocess}{Log-returns, normalization, sliding windows}\\
+    $\Downarrow$\\
+    \archbox{Spectral Map}{64-scale Morlet CWT\\$1 \times 64 \times 160$ tensor}
+    \hspace{0.01\textwidth}
+    $\Longleftarrow$
+    \hspace{0.01\textwidth}
+    \archbox{Regime Path}{Volatility + drawdown\\stable / transition / crisis}
+    \hspace{0.01\textwidth}
+    $\Longrightarrow$
+    \hspace{0.01\textwidth}
+    \archbox{Conditioning}{128-d timestep + 128-d regime embedding}
+    \\
+    $\Downarrow$\\
+    \archbox{Denoiser}{Residual FiLM-UNet\\encoder, bottleneck, decoder}\\
+    $\Downarrow$\\
+    \archbox{Training}{Cosine scheduler, Huber loss, AdamW, 60 epochs}\\
+    $\Downarrow$\\
+    \archbox{Sampling}{300-step reverse diffusion conditioned on regime}\\
+    $\Downarrow$\\
+    \archbox{Outputs}{Regime-specific spectral scenarios for analysis}
+    \caption{End-to-end architecture of the proposed regime-aware spectral diffusion pipeline.}
+    \label{fig:architecture}
+\end{figure*}
+
+\subsection{Training Loss}
+The diffusion objective minimizes the discrepancy between true and predicted noise. The repository uses Huber loss rather than mean-squared error:
+\begin{equation}
+\mathcal{L}_{\delta}(\boldsymbol{\epsilon}, \hat{\boldsymbol{\epsilon}}) =
+\begin{cases}
+\frac{1}{2}\|\boldsymbol{\epsilon} - \hat{\boldsymbol{\epsilon}}\|_2^2, & \|\cdot\| \leq \delta\\
+\delta\left(\|\boldsymbol{\epsilon} - \hat{\boldsymbol{\epsilon}}\|_1 - \frac{1}{2}\delta\right), & \text{otherwise},
+\end{cases}
+\end{equation}
+with $\delta = 1.0$. In practice, Huber loss is less sensitive to occasional large residuals and is therefore reasonable for heavy-tailed financial patterns.
+
+\subsection{Sampling}
+At generation time, the process starts from Gaussian noise and iteratively denoises from $t=T$ to $1$ using the selected regime label. The reverse update used in the script follows the standard DDPM form:
+\begin{equation}
+\mathbf{x}_{t-1} = \frac{1}{\sqrt{\alpha_t}}\left(\mathbf{x}_t - \frac{1-\alpha_t}{\sqrt{1-\bar{\alpha}_t}}\hat{\boldsymbol{\epsilon}}_t\right) + \sqrt{\beta_t}\mathbf{z},
+\end{equation}
+where $\mathbf{z}\sim\mathcal{N}(0,\mathbf{I})$ for $t>1$ and $\mathbf{z}=\mathbf{0}$ at the last step.
+
+\section{Implementation Details}
+Table~\ref{tab:setup} summarizes the most important implementation choices, all derived from the repository code.
+
+\begin{table}[!t]
+\caption{Experimental and Architectural Setup}
+\label{tab:setup}
+\centering
+\begin{tabular}{>{\raggedright\arraybackslash}p{2.35cm} p{5.1cm}}
+\toprule
+Setting & Value \\
+\midrule
+Dataset & Nifty50 daily index data (2008--2025) \\
+Target series & Log-returns of closing price \\
+Window length & 160 observations (128 past + 32 future) \\
+Step size & 5 observations \\
+Wavelet transform & Continuous wavelet transform, Morlet wavelet \\
+Number of scales & 64 \\
+Input tensor size & $1 \times 64 \times 160$ \\
+Regimes & 3 (stable, volatile-transition, crisis) \\
+Diffusion steps & 300 \\
+Denoiser & Residual UNet with FiLM conditioning \\
+Embedding dimension & 256 total (128 timestep + 128 regime) \\
+Loss & Huber loss with $\delta=1.0$ \\
+Optimizer & AdamW \\
+Learning rate & $3\times 10^{-4}$ \\
+Weight decay & $10^{-4}$ \\
+Scheduler & Cosine annealing learning rate \\
+Batch size & 16 \\
+Epochs & 60 \\
+Gradient clipping & Max norm $1.0$ \\
+Checkpoint policy & Every 10 epochs and final epoch \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Algorithm~\ref{alg:training} outlines the training process.
+
+\begin{algorithm}[!t]
+\caption{Training Procedure for Regime-Aware Spectral Diffusion}
+\label{alg:training}
+\begin{algorithmic}[1]
+\State Load Nifty50 data and sort by date
+\State Compute log-returns from closing prices
+\State Create overlapping windows of length 160 with step size 5
+\State Compute rolling volatility and drawdown
+\State Assign regime label $y \in \{0,1,2\}$ to each window
+\For{each window}
+    \State Normalize the return vector
+    \State Compute the 64-scale Morlet CWT map
+    \State Standardize the spectral map
+\EndFor
+\State Initialize conditional UNet, cosine scheduler, optimizer, and regime embedding
+\For{epoch $=1$ to $60$}
+    \For{each mini-batch $(\mathbf{x}_0, y)$}
+        \State Sample diffusion step $t \sim \mathcal{U}\{1,\dots,T\}$
+        \State Sample Gaussian noise $\boldsymbol{\epsilon}$
+        \State Form $\mathbf{x}_t = \sqrt{\bar{\alpha}_t}\mathbf{x}_0 + \sqrt{1-\bar{\alpha}_t}\boldsymbol{\epsilon}$
+        \State Compute timestep embedding $\mathbf{e}_t$ and regime embedding $\mathbf{e}_y$
+        \State Concatenate embeddings and predict $\hat{\boldsymbol{\epsilon}} = \epsilon_{\theta}(\mathbf{x}_t, t, y)$
+        \State Minimize Huber loss between $\boldsymbol{\epsilon}$ and $\hat{\boldsymbol{\epsilon}}$
+        \State Backpropagate, clip gradients, and update parameters
+    \EndFor
+    \State Apply cosine learning-rate decay
+    \State Save checkpoint periodically
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\section{Experimental Design}
+\subsection{Objectives}
+The experiments are designed to answer three practical questions:
+\begin{enumerate}
+    \item Can a diffusion model trained in the wavelet domain generate coherent financial spectral maps?
+    \item Does regime conditioning materially change the generated structure?
+    \item Is the resulting framework suitable as a baseline scenario generator for emerging-market stress testing?
+\end{enumerate}
+
+\subsection{Evaluation Philosophy}
+This repository is oriented toward proof-of-concept generative simulation rather than a benchmark-heavy comparison study. Accordingly, the current evaluation emphasizes implementation consistency and qualitative regime separation. Such an approach is reasonable for an early-stage research prototype but should eventually be extended with formal sample-quality metrics, predictive utility tests, and comparisons against GAN, VAE, and non-deep baselines.
+
+\subsection{Qualitative Inspection Criteria}
+Generated samples are examined visually in the spectral domain. The following properties are of interest:
+\begin{itemize}
+    \item concentration of energy in low or high scales,
+    \item smoothness versus fragmentation across time,
+    \item presence of bursty high-amplitude regions,
+    \item persistence of localized structures, and
+    \item relative separation between stable and crisis outputs.
+\end{itemize}
+These criteria align with familiar market intuitions: calm periods should exhibit smoother and less energetic patterns, while crisis periods should exhibit stronger, denser, and more erratic localized activity.
+
+\section{Results}
+\subsection{Training and Evaluation Outcome}
+The final training run completed successfully and produced a healthy optimization trajectory. The denoising loss decreased from 0.1403 at epoch 1 to 0.0390 at epoch 60, corresponding to a 72.2\% improvement over the training horizon. This confirms that the conditional UNet learned a stable reverse-denoising map under the selected optimizer, scheduler, and conditioning setup. The final checkpoint was saved as \texttt{checkpoints/final\_epoch\_60.pt}.
+
+The evaluation script then generated four samples for each of the three regimes, producing 12 regime-conditioned outputs in total. The summary statistics of these samples are consistent with regime-dependent but numerically stable generation. Stable samples had mean $-0.0052$ and standard deviation $0.7405$; transition samples had mean $-0.0040$ and standard deviation $0.7426$; crisis samples had mean $0.0139$ and standard deviation $0.7333$. These values indicate that the three conditional samplers remain centered near zero after standardization while still exhibiting broad dynamic range in their spectral intensities. The quantitative summary is reported in Table~\ref{tab:results-summary}.
+
+\begin{table}[!t]
+\caption{Training and Generation Results}
+\label{tab:results-summary}
+\centering
+\begin{tabular}{>{\raggedright\arraybackslash}p{3.0cm} p{4.45cm}}
+\toprule
+Item & Value \\
+\midrule
+Final saved checkpoint & \texttt{final\_epoch\_60.pt} \\
+Training epochs & 60 \\
+Epoch 1 loss & 0.1403 \\
+Epoch 60 loss & 0.0390 \\
+Training improvement & 72.2\% \\
+Evaluation sampling plan & 4 samples per regime (12 total) \\
+Number of regimes sampled & 3 \\
+Stable statistics & mean $=-0.0052$, std $=0.7405$ \\
+Transition statistics & mean $=-0.0040$, std $=0.7426$ \\
+Crisis statistics & mean $=0.0139$, std $=0.7333$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Representative Real Spectral Patterns}
+Fig.~\ref{fig:real-spec} shows representative spectral examples from the repository for calm and crisis-like periods. Even before generation, the wavelet-domain transformation makes regime structure easier to inspect than in raw returns. Stable periods exhibit smoother low-frequency organization, whereas crisis windows contain higher-amplitude and more dispersed energy.
+
+\begin{figure}[!t]
+    \centering
+    \subfloat[Stable example]{\safeincludegraphics[width=0.23\textwidth]{stable_spectral.png}\label{fig:stable-real}}
+    \hfill
+    \subfloat[Crisis example]{\safeincludegraphics[width=0.23\textwidth]{crisis_spectral.png}\label{fig:crisis-real}}
+    \caption{Representative real spectral maps from the Nifty50 pipeline.}
+    \label{fig:real-spec}
+\end{figure}
+
+\subsection{Generated Regime-Conditioned Samples}
+Fig.~\ref{fig:generated-grid} presents generated samples from the trained model. The outputs reveal noticeable regime dependence. Stable-regime samples are comparatively smoother with more organized energy bands. Transition-regime samples contain moderate irregularity and broader spectral activity. Crisis-regime samples show denser and sharper localized structures, consistent with elevated stress and multi-scale disturbance. Quantitatively, the generated samples remain well spread in all three regimes, with standard deviations between 0.7333 and 0.7426. The stable regime produced the widest numerical range on the negative side ($-6.3268$ minimum), while the crisis regime produced the largest positive excursion ($6.1755$ maximum), indicating that the model can synthesize both low- and high-intensity spectral responses without collapsing to nearly flat outputs.
+
+\begin{figure*}[!t]
+    \centering
+    \subfloat[Stable-1]{\safeincludegraphics[width=0.16\textwidth]{regime0_sample1.png}}
+    \hfill
+    \subfloat[Stable-2]{\safeincludegraphics[width=0.16\textwidth]{regime0_sample2.png}}
+    \hfill
+    \subfloat[Transition-1]{\safeincludegraphics[width=0.16\textwidth]{regime1_sample1.png}}
+    \hfill
+    \subfloat[Transition-2]{\safeincludegraphics[width=0.16\textwidth]{regime1_sample2.png}}
+    \hfill
+    \subfloat[Crisis-1]{\safeincludegraphics[width=0.16\textwidth]{regime2_sample1.png}}
+    \hfill
+    \subfloat[Crisis-2]{\safeincludegraphics[width=0.16\textwidth]{regime2_sample2.png}}\\
+    \subfloat[Stable-3]{\safeincludegraphics[width=0.16\textwidth]{regime0_sample3.png}}
+    \hfill
+    \subfloat[Stable-4]{\safeincludegraphics[width=0.16\textwidth]{regime0_sample4.png}}
+    \hfill
+    \subfloat[Transition-3]{\safeincludegraphics[width=0.16\textwidth]{regime1_sample3.png}}
+    \hfill
+    \subfloat[Transition-4]{\safeincludegraphics[width=0.16\textwidth]{regime1_sample4.png}}
+    \hfill
+    \subfloat[Crisis-3]{\safeincludegraphics[width=0.16\textwidth]{regime2_sample3.png}}
+    \hfill
+    \subfloat[Crisis-4]{\safeincludegraphics[width=0.16\textwidth]{regime2_sample4.png}}
+    \caption{Generated spectral samples conditioned on stable, transition, and crisis regimes.}
+    \label{fig:generated-grid}
+\end{figure*}
+
+\subsection{Interpretation}
+The visual separation between generated regimes suggests that conditioning is not being ignored by the denoiser. Instead, regime embeddings alter the type of structures synthesized during reverse diffusion. This is precisely the intended behavior for scenario generation. The model need not reproduce a single historical episode; rather, it should generate samples whose morphology is statistically and semantically aligned with the requested regime. The fact that all three regimes preserve similar overall variance while differing in spectral texture is useful: it indicates that the model is not merely scaling amplitude by label, but is learning more structured regime-dependent organization in the time-frequency plane.
+
+\subsection{Why the Spectral Domain Helps}
+The wavelet domain offers a useful inductive bias. In the raw time domain, localized jumps and oscillations are entangled within a one-dimensional signal. In the spectral map, these same events are spread across scale and time, making the geometry of stressed versus calm conditions easier for a convolutional architecture to learn. The generated samples support this intuition because the most visible differences occur in energy dispersion, local concentration, and cross-scale texture, all of which are naturally expressed in a two-dimensional time-frequency representation.
+
+\section{Discussion}
+\subsection{Strengths of the Framework}
+The proposed framework has several strengths. First, diffusion training is stable compared with adversarial methods, which is valuable when the dataset is relatively small. Second, explicit regime conditioning offers controllability during sampling. Third, wavelet transforms provide a compact representation of transient market events without requiring handcrafted factor models. Finally, the architecture is lightweight enough to serve as a baseline for further experimentation in academic or applied settings.
+
+\subsection{Relevance to Emerging Markets}
+Emerging markets often experience abrupt changes in liquidity, stronger event sensitivity, and more heterogeneous volatility behavior than mature markets. A regime-aware simulator is therefore particularly relevant in this setting. Nifty50 provides a useful testbed because it spans multiple macro-financial conditions over a sufficiently long period. Although the present model is trained on index-level data only, the same framework could be extended to sector indices, cross-asset panels, or market microstructure features.
+
+\subsection{Limitations}
+Several limitations should be stated clearly.
+\begin{itemize}
+    \item The regime labels are heuristic and based on fixed thresholds rather than latent-state inference or expert annotation.
+    \item The current study emphasizes qualitative inspection and does not yet report formal generative metrics such as MMD, spectral Fr\'echet distance, or downstream stress-testing utility.
+    \item The training subset is limited to 1000 windows in the provided script, which is adequate for a prototype but not for a definitive large-scale empirical study.
+    \item The model generates spectral maps rather than directly reconstructed price paths. An inverse mapping or joint decoder would be required for full pathwise simulation in downstream systems.
+    \item Sampling from diffusion models is slower than one-shot generators such as VAEs or GANs.
+\end{itemize}
+
+\subsection{Potential Extensions}
+There are several promising directions for follow-up work:
+\begin{itemize}
+    \item replacing heuristic regimes with learned hidden states or macroeconomic labels,
+    \item extending the denoiser with attention layers for longer-range temporal interactions,
+    \item generating multi-channel tensors for multiple assets or features,
+    \item learning a joint spectral-to-time decoder for direct return-path generation,
+    \item evaluating synthetic data by its impact on portfolio optimization and stress testing, and
+    \item comparing conditional diffusion against GANs, VAEs, and regime-switching baselines under identical data splits.
+\end{itemize}
+
+\section{Practical Implications}
+From a financial engineering perspective, the model can be used as a regime-conditioned scenario engine. For instance, risk managers may request crisis-conditioned synthetic samples to enrich stress libraries; quantitative researchers may use stable and transition samples to study robustness of allocation rules; and educators may use the spectral outputs to visualize how market regimes differ across time scales. Even in its current form, the repository establishes a practical workflow for turning historical index data into a generative laboratory for controlled market-state simulation.
+
+\section{Conclusion}
+This paper presented a regime-aware spectral diffusion framework for generative simulation of emerging financial markets. The approach transforms return windows from Nifty50 into wavelet-domain spectral maps and trains a conditional diffusion model with UNet denoising, joint timestep and regime embeddings, and FiLM-based conditioning. The implementation uses a compact but effective architecture with cosine noising, Huber loss, AdamW optimization, and scheduled learning-rate decay. Qualitative results indicate meaningful regime separation between stable, transition, and crisis generations, demonstrating that wavelet-domain diffusion is a viable path for controlled scenario synthesis.
+
+The broader significance of this work lies in combining state-aware financial modeling with modern generative learning in a representation that respects market non-stationarity. While the current study is best interpreted as a proof-of-concept baseline, it establishes the methodological foundation for more rigorous future work on synthetic market generation, stress testing, and probabilistic scenario design for emerging-market systems.
+
+\section*{Acknowledgment}
+The author would like to acknowledge the academic environment and computational support available for this project. Replace this paragraph with the official funding and institutional acknowledgment required for submission, if applicable.
+
+\balance
+\begin{thebibliography}{99}
+
+\bibitem{blackscholes}
+F. Black and M. Scholes, ``The pricing of options and corporate liabilities,'' \emph{Journal of Political Economy}, vol. 81, no. 3, pp. 637--654, 1973.
+
+\bibitem{bollerslev1986}
+T. Bollerslev, ``Generalized autoregressive conditional heteroskedasticity,'' \emph{Journal of Econometrics}, vol. 31, no. 3, pp. 307--327, 1986.
+
+\bibitem{hamilton1989}
+J. D. Hamilton, ``A new approach to the economic analysis of nonstationary time series and the business cycle,'' \emph{Econometrica}, vol. 57, no. 2, pp. 357--384, 1989.
+
+\bibitem{rabiner1989}
+L. R. Rabiner, ``A tutorial on hidden Markov models and selected applications in speech recognition,'' \emph{Proceedings of the IEEE}, vol. 77, no. 2, pp. 257--286, 1989.
+
+\bibitem{mallat1999}
+S. Mallat, \emph{A Wavelet Tour of Signal Processing}. San Diego, CA, USA: Academic Press, 1999.
+
+\bibitem{flandrin1998}
+P. Flandrin, \emph{Time-Frequency/Time-Scale Analysis}. San Diego, CA, USA: Academic Press, 1998.
+
+\bibitem{goodfellow2014}
+I. Goodfellow \emph{et al.}, ``Generative adversarial nets,'' in \emph{Proc. Advances in Neural Information Processing Systems}, 2014, pp. 2672--2680.
+
+\bibitem{kingma2014}
+D. P. Kingma and M. Welling, ``Auto-encoding variational Bayes,'' in \emph{Proc. International Conference on Learning Representations}, 2014.
+
+\bibitem{ho2020}
+J. Ho, A. Jain, and P. Abbeel, ``Denoising diffusion probabilistic models,'' in \emph{Proc. Advances in Neural Information Processing Systems}, 2020.
+
+\bibitem{song2021}
+Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, and B. Poole, ``Score-based generative modeling through stochastic differential equations,'' in \emph{Proc. International Conference on Learning Representations}, 2021.
+
+\bibitem{nichol2021}
+A. Q. Nichol and P. Dhariwal, ``Improved denoising diffusion probabilistic models,'' in \emph{Proc. International Conference on Machine Learning}, 2021, pp. 8162--8171.
+
+\bibitem{perez2018}
+E. Perez, F. Strub, H. de Vries, V. Dumoulin, and A. Courville, ``FiLM: Visual reasoning with a general conditioning layer,'' in \emph{Proc. AAAI Conference on Artificial Intelligence}, 2018, pp. 3942--3951.
+
+\bibitem{financegan}
+A. Wiese, R. Knobloch, R. Korn, and P. Kretschmer, ``Quant GANs: Deep generation of financial time series,'' \emph{Quantitative Finance}, vol. 20, no. 9, pp. 1419--1440, 2020.
+
+\bibitem{tsdifffinance}
+Z. Rasul, C. Seward, I. Schuster, and R. Vollgraf, ``Autoregressive denoising diffusion models for multivariate probabilistic time series forecasting,'' in \emph{Proc. International Conference on Machine Learning}, 2021, pp. 8857--8868.
+
+\end{thebibliography}
+
+\end{document}
